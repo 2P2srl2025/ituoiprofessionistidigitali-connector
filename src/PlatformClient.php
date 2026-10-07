@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace ITuoiProfessionistiDigitali\Connector;
 
+use Carbon\CarbonImmutable;
+use DateTimeInterface;
 use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as Http;
@@ -16,8 +18,12 @@ use ITuoiProfessionistiDigitali\Connector\Data\EventTypeData;
 use ITuoiProfessionistiDigitali\Connector\Data\ListedMemberData;
 use ITuoiProfessionistiDigitali\Connector\Data\MemberData;
 use ITuoiProfessionistiDigitali\Connector\Data\MemberPage;
+use ITuoiProfessionistiDigitali\Connector\Data\RecordedTransactionData;
 use ITuoiProfessionistiDigitali\Connector\Data\RegisteredMemberData;
 use ITuoiProfessionistiDigitali\Connector\Data\SystemData;
+use ITuoiProfessionistiDigitali\Connector\Data\TransactionData;
+use ITuoiProfessionistiDigitali\Connector\Data\TransactionOutcomeData;
+use ITuoiProfessionistiDigitali\Connector\Data\TransactionPage;
 use ITuoiProfessionistiDigitali\Connector\Data\TypologyData;
 use ITuoiProfessionistiDigitali\Connector\Enums\SystemStatus;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformNotConfiguredException;
@@ -150,6 +156,87 @@ final readonly class PlatformClient
     }
 
     /**
+     * PUT /transactions/{reference}: registers or updates a transaction of the system. Prefer the outbox of the
+     * package (RecordsPlatformTransaction), which keeps the revision and retries.
+     */
+    public function recordTransaction(string $reference, TransactionData $transaction, int $revision): RecordedTransactionData
+    {
+        $this->checkTransaction($transaction);
+
+        return RecordedTransactionData::from($this->data(
+            $this->request('PUT', 'transactions/'.rawurlencode($reference), $transaction->toWire($revision)),
+        ));
+    }
+
+    /**
+     * POST /transactions/batch: the history, up to 500 transactions, each with its outcome (rule R10).
+     *
+     * @param  list<array{reference: string, revision: int, transaction: TransactionData}>  $transactions
+     * @return list<TransactionOutcomeData>
+     */
+    public function recordTransactions(array $transactions): array
+    {
+        if (count($transactions) > Contract::MAX_TRANSACTIONS)
+        {
+            throw new PlatformRequestException(
+                message: 'Troppe transazioni in una sola richiesta.',
+                status: 422,
+                errors: ['transactions' => ['Al massimo '.Contract::MAX_TRANSACTIONS.' transazioni.']],
+            );
+        }
+
+        $body = array_map(function (array $item): array {
+            $this->checkTransaction($item['transaction']);
+
+            return ['reference' => $item['reference'], ...$item['transaction']->toWire($item['revision'])];
+        }, $transactions);
+
+        return array_map(
+            TransactionOutcomeData::from(...),
+            $this->list($this->request('POST', 'transactions/batch', ['transactions' => $body])),
+        );
+    }
+
+    /**
+     * GET /transactions: the transactions of the members of the system (rule R11).
+     */
+    public function transactions(?string $status = null, ?string $kind = null, ?DateTimeInterface $updatedSince = null, ?int $perPage = null, ?string $cursor = null): TransactionPage
+    {
+        $response = $this->request('GET', 'transactions', array_filter([
+            'status' => $status,
+            'kind' => $kind,
+            'updated_since' => $updatedSince === null ? null : CarbonImmutable::instance($updatedSince)->format(Contract::DATE_FORMAT),
+            'per_page' => $perPage,
+            'cursor' => $cursor,
+        ], static fn (mixed $value): bool => $value !== null));
+
+        $nextCursor = $response->json('meta.next_cursor');
+
+        return new TransactionPage(
+            transactions: array_map(RecordedTransactionData::from(...), $this->list($response)),
+            nextCursor: is_string($nextCursor) ? $nextCursor : null,
+        );
+    }
+
+    /**
+     * The rules of the DTO, and the schema fixed in the package for the payload (rules R3–R6).
+     */
+    private function checkTransaction(TransactionData $transaction): void
+    {
+        TransactionData::validate($transaction->toArray());
+
+        $path = Contract::transactionSchemaPath($transaction->type, $transaction->schema_version);
+
+        if ($this->config->validatePayloads && is_file($path))
+        {
+            /** @var array<string, mixed> $schema */
+            $schema = json_decode((string) file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
+
+            PayloadValidator::validateSchema($schema, $transaction->payload);
+        }
+    }
+
+    /**
      * The catalogue used by the local validation, cached for `catalog_ttl` seconds.
      *
      * @return list<EventTypeData>
@@ -196,7 +283,7 @@ final readonly class PlatformClient
 
         if ($response->failed())
         {
-            throw $this->exception($response);
+            throw $this->exception($response, $path);
         }
 
         return $response;
@@ -266,18 +353,19 @@ final readonly class PlatformClient
         return 'platform.access-token.'.sha1((string) $this->config->clientId);
     }
 
-    private function exception(Response $response): PlatformRequestException
+    private function exception(Response $response, string $path): PlatformRequestException
     {
         $message = $response->json('message');
         $reason = $response->json('reason');
-        $existing = $response->json('data');
+        $existing = $response->status() === 409 ? $response->json('data') : null;
 
         return new PlatformRequestException(
             message: is_string($message) ? $message : 'Richiesta al portale non riuscita.',
             status: $response->status(),
             errors: $this->errors($response->json('errors')),
             reason: is_string($reason) ? SystemStatus::tryFrom($reason) : null,
-            existingEvent: $response->status() === 409 && is_array($existing) ? AcceptedEventData::from($existing) : null,
+            existingEvent: is_array($existing) && $path === 'events' ? AcceptedEventData::from($existing) : null,
+            existingTransaction: is_array($existing) && str_starts_with($path, 'transactions/') ? RecordedTransactionData::from($existing) : null,
         );
     }
 

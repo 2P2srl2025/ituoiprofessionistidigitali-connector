@@ -8,6 +8,8 @@ parameters:
         - config
         - routes
         - src
+        # The fixture that uses the RecordsOnPlatform trait: PHPStan analyses a trait only through its users
+        - tests/Fixtures
 
     level: max
 

@@ -3,11 +3,17 @@
     "description": "Il contratto di I tuoi professionisti digitali in forma di codice: DTO, client, firma dei webhook e validazione dei payload.",
     "type": "library",
     "license": "MIT",
-    "keywords": ["laravel", "webhook", "ituoiprofessionistidigitali"],
+    "keywords": [
+        "laravel",
+        "webhook",
+        "ituoiprofessionistidigitali"
+    ],
     "require": {
         "php": "^8.4",
         "illuminate/console": "^13.0",
+        "illuminate/database": "^13.0",
         "illuminate/http": "^13.0",
+        "illuminate/queue": "^13.0",
         "illuminate/support": "^13.0",
         "opis/json-schema": "^2.6",
         "ramsey/uuid": "^4.7",

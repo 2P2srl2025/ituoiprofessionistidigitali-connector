@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ITuoiProfessionistiDigitali\Connector\Exceptions;
 
 use ITuoiProfessionistiDigitali\Connector\Data\AcceptedEventData;
+use ITuoiProfessionistiDigitali\Connector\Data\RecordedTransactionData;
 use ITuoiProfessionistiDigitali\Connector\Enums\SystemStatus;
 
 /**
@@ -23,6 +24,7 @@ final class PlatformRequestException extends PlatformException
         public readonly array $errors = [],
         public readonly ?SystemStatus $reason = null,
         public readonly ?AcceptedEventData $existingEvent = null,
+        public readonly ?RecordedTransactionData $existingTransaction = null,
     ) {
         parent::__construct($message);
     }

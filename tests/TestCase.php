@@ -22,6 +22,12 @@ abstract class TestCase extends Orchestra
         return [LaravelDataServiceProvider::class, ConnectorServiceProvider::class];
     }
 
+    #[Override]
+    protected function defineDatabaseMigrations(): void
+    {
+        $this->loadMigrationsFrom(__DIR__.'/database/migrations');
+    }
+
     /**
      * @param  Application  $app
      */

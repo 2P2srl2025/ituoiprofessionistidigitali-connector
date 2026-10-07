@@ -47,11 +47,21 @@ final class Contract
 
     public const int MAX_PER_PAGE = 100;
 
+    public const int MAX_TRANSACTIONS = 500;
+
     /**
      * The JSON Schema of an event type version, as fixed by this release of the package.
      */
     public static function schemaPath(string $type, int $version): string
     {
         return dirname(__DIR__).'/resources/schemas/event-types/'.$type.'/'.$version.'.json';
+    }
+
+    /**
+     * The JSON Schema of a transaction payload, as fixed by this release of the package.
+     */
+    public static function transactionSchemaPath(string $type, int $version): string
+    {
+        return dirname(__DIR__).'/resources/schemas/transaction-types/'.$type.'/'.$version.'.json';
     }
 }

@@ -43,6 +43,24 @@ Regole per chi scrive codice che usa `ituoiprofessionistidigitali/connector` in 
 - Senza `PLATFORM_URL`, `PLATFORM_CLIENT_ID` e `PLATFORM_CLIENT_SECRET` il sistema non è collegato: il client lancia `PlatformNotConfiguredException`. Controlla prima con `resolve(ConnectorConfig::class)->isConnected()` e spegni la funzione, invece di romperla.
 - Dopo il deploy o quando cambia l'URL del webhook chiama `Platform::present(route('platform.webhook'))`. Finché la verifica non riesce, il sistema legge i cataloghi ma non pubblica aderenti né eventi (403 con `reason: pending`).
 
+## Registro delle transazioni
+
+- Ogni affidamento deciso dentro il sistema (incarico diretto a un collaboratore persona, affidamento fra due strutture dello stesso sistema) va registrato sul portale **quando nasce**, nello stato `invited`, e poi a ogni cambio. Non è facoltativo: è la regola R9 del contratto.
+- Il modello dell'affidamento implementa `RecordsPlatformTransaction` e usa il trait `RecordsOnPlatform`. Il pacchetto scrive ogni salvataggio in una outbox, nella stessa transazione del database, e lo manda in coda con la revisione giusta. Non chiamare `Platform::recordTransaction()` a mano per questi modelli.
+- Rendi operativo l'affidamento (link al collaboratore, attività nell'altra struttura) solo quando `$model->isRecordedOnPlatform()` è vero.
+- Mai `Model::query()->update()` o `DB::table()->update()` sui modelli che implementano l'interfaccia: gli aggiornamenti di massa saltano il modello e l'outbox. Aggiorna riga per riga.
+- Il payload `assignment` porta solo i nomi del processo e delle attività del catalogo dello studio: **mai** il nome, il codice fiscale o la partita IVA del cliente, e nessun testo libero.
+- Lo storico già esistente si carica una volta con `Platform::recordTransactions()`, fino a 500 per chiamata.
+- Una riga dell'outbox in stato `failed` è un errore nel codice (contratto violato o conflitto di revisione): leggi `last_error` e correggi, non ritentare alla cieca.
+- Un test di architettura nel progetto rende l'obbligo verificabile:
+
+```php
+arch('assignments reach the register of the platform')
+    ->expect(App\Models\P2pExternalAssignment::class)
+    ->toImplement(ITuoiProfessionistiDigitali\Connector\Contracts\RecordsPlatformTransaction::class)
+    ->toUseTrait(ITuoiProfessionistiDigitali\Connector\Concerns\RecordsOnPlatform::class);
+```
+
 ## Errori
 
 - `422`: il contratto è violato. Non ritentare: leggi `->errors`, le cui chiavi sono i campi in notazione puntata.

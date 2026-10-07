@@ -118,6 +118,36 @@ final class HandlePlatformEvent implements ShouldQueue
 }
 ```
 
+## Registro delle transazioni
+
+Ogni affidamento deciso dentro il sistema si registra sul portale quando nasce, e poi a ogni cambio. Il modello lo dichiara con un'interfaccia e il pacchetto fa il resto:
+
+```php
+use ITuoiProfessionistiDigitali\Connector\Concerns\RecordsOnPlatform;
+use ITuoiProfessionistiDigitali\Connector\Contracts\RecordsPlatformTransaction;
+use ITuoiProfessionistiDigitali\Connector\Data\TransactionData;
+
+final class ExternalAssignment extends Model implements RecordsPlatformTransaction
+{
+    use RecordsOnPlatform;
+
+    public function platformTransactionReference(): string
+    {
+        return $this->uuid;
+    }
+
+    public function toPlatformTransaction(): TransactionData
+    {
+        return TransactionData::from([/* kind, principal, counterparty, status, compensation, minuti, date, payload */]);
+    }
+}
+```
+
+- Ogni salvataggio scrive la versione attuale in una outbox (`php artisan migrate` crea la tabella `platform_transaction_outbox`), nella stessa transazione del database, con una revisione nuova solo se qualcosa è cambiato.
+- Un job in coda la manda con `PUT /transactions/{reference}`. Riprova sugli errori di rete e su un sistema non ancora attivo; si ferma, segnando l'errore, su una violazione del contratto o un conflitto.
+- `$model->isRecordedOnPlatform()` dice se il portale ha confermato la versione attuale: l'affidamento diventa operativo solo allora.
+- Lo storico si carica con `Platform::recordTransactions()`, fino a 500 per chiamata; `Platform::transactions()` legge il registro del sistema.
+
 ## Errori
 
 Ogni rifiuto è una `PlatformRequestException`, con `->status`, `->errors` (chiavi puntate come `payload.challenge`), `->reason` per i 403 (`SystemStatus`) e `->existingEvent` per i 409. Senza credenziali il client lancia `PlatformNotConfiguredException`.

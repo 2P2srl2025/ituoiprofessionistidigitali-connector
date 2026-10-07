@@ -28,3 +28,13 @@ it('C5: keeps the challenge of ping and pong between 16 and 128 safe characters,
     'missing' => [(object) [], false],
     'one more field' => [(object) ['challenge' => 'a1b2c3d4e5f6a7b8', 'extra' => 1], false],
 ]);
+
+it('R6: fixes a valid JSON Schema 2020-12 for the transaction payload, without free text', function (): void {
+    $schema = json_decode((string) file_get_contents(Contract::transactionSchemaPath('assignment', 1)));
+    $valid = (object) ['process' => (object) ['name' => 'Contabilità'], 'activities' => [(object) ['name' => 'Registrazione fatture', 'deadline' => '2026-11-30', 'estimated_minutes' => 120]]];
+    $withText = (object) ['process' => (object) ['name' => 'Contabilità'], 'activities' => [(object) ['name' => 'x', 'description' => 'Per il cliente Rossi']]];
+
+    expect($schema->{'$id'})->toBe('https://ituoiprofessionistidigitali.it/contract/transaction-types/assignment/1.json')
+        ->and(new Validator()->validate($valid, $schema)->isValid())->toBeTrue()
+        ->and(new Validator()->validate($withText, $schema)->isValid())->toBeFalse();
+});

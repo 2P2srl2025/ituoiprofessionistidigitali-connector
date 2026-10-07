@@ -30,6 +30,7 @@ final class ConnectorServiceProvider extends ServiceProvider
         ], 'platform-config');
 
         $this->loadRoutesFrom(__DIR__.'/../routes/webhook.php');
+        $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
 
         if ($this->app->make(ConnectorConfig::class)->replyToPings)
         {

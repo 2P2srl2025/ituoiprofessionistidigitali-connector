@@ -45,12 +45,23 @@ final class PayloadValidator
             self::fail(['typology' => ["La tipologia {$envelope->typology} non è ammessa per {$envelope->type}."]]);
         }
 
-        $result = new Validator()->validate(
-            $envelope->payload === [] ? new stdClass : Helper::toJSON($envelope->payload),
-            json_encode($version->schema, JSON_THROW_ON_ERROR),
-        );
+        self::validateSchema($version->schema, $envelope->payload);
+    }
 
-        $error = $result->error();
+    /**
+     * Checks a payload against a JSON Schema, with the keys the platform uses (`payload.activities.0`).
+     *
+     * @param  array<string, mixed>  $schema
+     * @param  array<string, mixed>  $payload
+     *
+     * @throws PlatformRequestException
+     */
+    public static function validateSchema(array $schema, array $payload): void
+    {
+        $error = new Validator()->validate(
+            $payload === [] ? new stdClass : Helper::toJSON($payload),
+            json_encode($schema, JSON_THROW_ON_ERROR),
+        )->error();
 
         if ($error === null)
         {
