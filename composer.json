@@ -1,0 +1,58 @@
+{
+    "name": "ituoiprofessionistidigitali/connector",
+    "description": "Il contratto di I tuoi professionisti digitali in forma di codice: DTO, client, firma dei webhook e validazione dei payload.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["laravel", "webhook", "ituoiprofessionistidigitali"],
+    "require": {
+        "php": "^8.4",
+        "illuminate/console": "^13.0",
+        "illuminate/http": "^13.0",
+        "illuminate/support": "^13.0",
+        "opis/json-schema": "^2.6",
+        "ramsey/uuid": "^4.7",
+        "spatie/laravel-data": "^4.23"
+    },
+    "require-dev": {
+        "larastan/larastan": "^3.12",
+        "laravel/pint": "^1.32",
+        "orchestra/testbench": "^11.0",
+        "pestphp/pest": "^4.0|^5.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "ITuoiProfessionistiDigitali\\Connector\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "ITuoiProfessionistiDigitali\\Connector\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "ITuoiProfessionistiDigitali\\Connector\\ConnectorServiceProvider"
+            ],
+            "aliases": {
+                "Platform": "ITuoiProfessionistiDigitali\\Connector\\Facades\\Platform"
+            }
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "scripts": {
+        "lint": [
+            "pint",
+            "phpstan analyse --memory-limit=1G"
+        ],
+        "test": "pest",
+        "test:coverage": "pest --coverage --min=100"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    }
+}

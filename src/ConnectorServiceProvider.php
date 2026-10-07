@@ -1,0 +1,44 @@
+<?php
+
+declare(strict_types=1);
+
+namespace ITuoiProfessionistiDigitali\Connector;
+
+use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Support\ServiceProvider;
+use ITuoiProfessionistiDigitali\Connector\Console\InstallCommand;
+use ITuoiProfessionistiDigitali\Connector\Events\PlatformEventReceived;
+use ITuoiProfessionistiDigitali\Connector\Listeners\ReplyToPing;
+
+final class ConnectorServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        $this->mergeConfigFrom(__DIR__.'/../config/platform.php', 'platform');
+
+        $this->app->singleton(ConnectorConfig::class, static fn (): ConnectorConfig => ConnectorConfig::fromArray(
+            (array) config('platform', []),
+        ));
+
+        $this->app->singleton(PlatformClient::class);
+    }
+
+    public function boot(Dispatcher $events): void
+    {
+        $this->publishes([
+            __DIR__.'/../config/platform.php' => config_path('platform.php'),
+        ], 'platform-config');
+
+        $this->loadRoutesFrom(__DIR__.'/../routes/webhook.php');
+
+        if ($this->app->make(ConnectorConfig::class)->replyToPings)
+        {
+            $events->listen(PlatformEventReceived::class, ReplyToPing::class);
+        }
+
+        if ($this->app->runningInConsole())
+        {
+            $this->commands([InstallCommand::class]);
+        }
+    }
+}

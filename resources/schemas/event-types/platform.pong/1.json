@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://ituoiprofessionistidigitali.it/contract/event-types/platform.pong/1.json",
+    "title": "platform.pong v1",
+    "description": "Risposta a un platform.ping ricevuto da un aderente. La busta porta come correlation_id l'event_id del ping.",
+    "type": "object",
+    "properties": {
+        "challenge": {
+            "description": "La sfida del ping a cui si risponde, identica.",
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{16,128}$"
+        }
+    },
+    "required": ["challenge"],
+    "additionalProperties": false
+}

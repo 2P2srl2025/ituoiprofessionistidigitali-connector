@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://ituoiprofessionistidigitali.it/contract/event-types/platform.ping/1.json",
+    "title": "platform.ping v1",
+    "description": "Prova di raggiungibilità. Il portale la usa per verificare il webhook di un sistema; un aderente la manda a un altro aderente per provare lo scambio. Chi la riceve da un aderente risponde con un platform.pong che riporta la stessa sfida.",
+    "type": "object",
+    "properties": {
+        "challenge": {
+            "description": "Sfida scelta da chi manda il ping, da restituire identica.",
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{16,128}$"
+        }
+    },
+    "required": ["challenge"],
+    "additionalProperties": false
+}

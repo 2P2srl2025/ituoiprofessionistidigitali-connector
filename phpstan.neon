@@ -1,0 +1,16 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+# No baseline and no @phpstan-ignore: the package starts clean and stays clean.
+parameters:
+
+    paths:
+        - config
+        - routes
+        - src
+
+    level: max
+
+    # The package's own config file is the one place where env() belongs.
+    configDirectories:
+        - config
