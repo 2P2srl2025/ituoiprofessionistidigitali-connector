@@ -12,4 +12,12 @@ enum TransactionResult: string
     case Stale = 'stale';
     case Conflict = 'conflict';
     case Invalid = 'invalid';
+
+    /**
+     * Whether the platform has the transaction as it was sent.
+     */
+    public function isRecorded(): bool
+    {
+        return in_array($this, [self::Created, self::Updated, self::Unchanged], true);
+    }
 }

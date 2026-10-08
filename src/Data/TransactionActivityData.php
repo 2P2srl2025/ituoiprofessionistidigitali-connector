@@ -8,8 +8,8 @@ use BackedEnum;
 use Carbon\CarbonImmutable;
 use Illuminate\Validation\Rule;
 use ITuoiProfessionistiDigitali\Connector\Contract;
+use ITuoiProfessionistiDigitali\Connector\Enums\CounterpartyType;
 use ITuoiProfessionistiDigitali\Connector\Enums\TransactionActivityStatus;
-use ITuoiProfessionistiDigitali\Connector\Enums\TransactionKind;
 use Spatie\LaravelData\Attributes\WithCast;
 use Spatie\LaravelData\Attributes\WithTransformer;
 use Spatie\LaravelData\Casts\DateTimeInterfaceCast;
@@ -42,18 +42,20 @@ final class TransactionActivityData extends Data
         $activity = is_array($context->payload) ? $context->payload : [];
         $status = TransactionActivityStatus::tryFrom(self::value($activity['status'] ?? null));
         $transaction = is_array($context->fullPayload) ? $context->fullPayload : [];
-        $isPerson = self::value($transaction['kind'] ?? null) === TransactionKind::PersonAssignment->value;
+        $counterparty = is_array($transaction['counterparty'] ?? null) ? $transaction['counterparty'] : [];
+        $isPerson = self::value($counterparty['type'] ?? null) === CounterpartyType::Person->value;
 
         return [
             'reference' => ['required', 'string', 'max:191'],
             'estimated_minutes' => ['required', 'integer', 'min:0'],
             // Only when an activity of a person ends: the hours of a firm stay with the firm (rule R5)
             'minutes_worked' => [
+                'present',
                 Rule::requiredIf($isPerson && $status === TransactionActivityStatus::Completed),
                 Rule::prohibitedIf(!$isPerson || $status === TransactionActivityStatus::Open),
                 'nullable', 'integer', 'min:0',
             ],
-            'closed_at' => [Rule::requiredIf($status?->isClosed() === true), Rule::prohibitedIf($status === TransactionActivityStatus::Open)],
+            'closed_at' => ['present', Rule::requiredIf($status?->isClosed() === true), Rule::prohibitedIf($status === TransactionActivityStatus::Open)],
         ];
     }
 

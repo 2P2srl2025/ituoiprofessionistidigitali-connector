@@ -84,7 +84,7 @@ function activity(array $overrides = []): array
 }
 
 /**
- * A transaction as a system registers it: an assignment to a person, just sent, with one activity.
+ * A transaction as a system registers it: an assignment to a person, just sent, with one activity and every key.
  *
  * @return array<string, mixed>
  */
@@ -92,12 +92,17 @@ function transaction(array $overrides = []): array
 {
     return [
         'assignment_reference' => 'incarico-1',
-        'kind' => 'person_assignment',
+        'audience' => 'person',
         'principal' => '0199b6f0-4e2a-7b31-9f6c-2d8a1e5b7c43',
-        'counterparty' => ['type' => 'person', 'tax_code' => 'RSSMRA80A01H501U', 'first_name' => 'Mario', 'last_name' => 'Rossi', 'email' => 'mario.rossi@example.com', 'vat_number' => null, 'municipality' => 'Bari', 'province' => 'BA'],
+        'counterparty' => ['type' => 'person', 'member_id' => null, 'tax_code' => 'RSSMRA80A01H501U', 'first_name' => 'Mario', 'last_name' => 'Rossi', 'email' => 'mario.rossi@example.com', 'vat_number' => null, 'municipality' => 'Bari', 'province' => 'BA'],
         'typology' => 'commercialisti',
+        'title' => 'Contabilità ordinaria 2026',
+        'description' => 'Registrazione delle fatture del 2026.',
         'status' => 'invited',
         'sent_at' => '2026-10-06T18:00:00+02:00',
+        'expires_at' => null,
+        'responded_at' => null,
+        'closed_at' => null,
         'activities' => [activity()],
         ...$overrides,
     ];
@@ -115,13 +120,12 @@ function recordedTransaction(array $overrides = []): array
         'origin' => 'system',
         'reference' => 'invio-1',
         'assignment_reference' => 'incarico-1',
-        'kind' => 'person_assignment',
-        'open_to' => null,
+        'audience' => 'person',
         'principal' => '0199b6f0-4e2a-7b31-9f6c-2d8a1e5b7c43',
-        'counterparty' => ['type' => 'person', 'tax_code' => 'RSSMRA80A01H501U', 'first_name' => 'Mario', 'last_name' => 'Rossi', 'email' => 'mario.rossi@example.com', 'vat_number' => null, 'municipality' => 'Bari', 'province' => 'BA'],
+        'counterparty' => ['type' => 'person', 'member_id' => null, 'tax_code' => 'RSSMRA80A01H501U', 'first_name' => 'Mario', 'last_name' => 'Rossi', 'email' => 'mario.rossi@example.com', 'vat_number' => null, 'municipality' => 'Bari', 'province' => 'BA'],
         'typology' => 'commercialisti',
-        'title' => null,
-        'description' => null,
+        'title' => 'Contabilità ordinaria 2026',
+        'description' => 'Registrazione delle fatture del 2026.',
         'status' => 'invited',
         'sent_at' => '2026-10-06T16:00:00Z',
         'expires_at' => null,

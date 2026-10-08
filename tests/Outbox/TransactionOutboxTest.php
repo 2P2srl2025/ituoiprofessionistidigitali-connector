@@ -4,13 +4,19 @@ declare(strict_types=1);
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use ITuoiProfessionistiDigitali\Connector\Concerns\RecordsAffectedOnPlatform;
 use ITuoiProfessionistiDigitali\Connector\Concerns\RecordsOnPlatform;
+use ITuoiProfessionistiDigitali\Connector\Data\ProfessionalRecordData;
+use ITuoiProfessionistiDigitali\Connector\Data\TransactionData;
 use ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus;
+use ITuoiProfessionistiDigitali\Connector\Facades\Platform;
 use ITuoiProfessionistiDigitali\Connector\Jobs\SendPlatformTransaction;
 use ITuoiProfessionistiDigitali\Connector\Models\PlatformTransactionOutbox;
+use ITuoiProfessionistiDigitali\Connector\Outbox\ProfessionalOutbox;
+use ITuoiProfessionistiDigitali\Connector\Outbox\TransactionOutbox;
 use ITuoiProfessionistiDigitali\Connector\Tests\Fixtures\Assignment;
 
 uses(RefreshDatabase::class);
@@ -106,3 +112,35 @@ it('refuses the traits on a model without their interface', function (string $tr
 
     expect($model)->toThrow(LogicException::class, 'non implementa');
 })->with(['records', 'affects']);
+
+it('R10 and R18: keeps the history registered in batch as confirmed, so the outbox knows every person assigned', function (): void {
+    Http::preventStrayRequests();
+    Http::fake([
+        'platform.test/oauth/token' => Http::response(['access_token' => 'token', 'expires_in' => 3600]),
+        'platform.test/api/v1/transactions/batch' => Http::response(['data' => array_map(
+            static fn (string $reference, string $result): array => ['reference' => $reference, 'result' => $result, 'transaction' => $result === 'invalid' ? null : recordedTransaction(['reference' => $reference]), 'errors' => null],
+            ['created', 'updated', 'unchanged', 'stale', 'invalid', 'kept'],
+            ['created', 'updated', 'unchanged', 'stale', 'invalid', 'updated'],
+        )]),
+    ]);
+    PlatformTransactionOutbox::query()->create(['reference' => 'kept', 'revision' => 5, 'payload' => [], 'status' => OutboxStatus::Pending]);
+    $transaction = TransactionData::from(transaction());
+
+    Platform::recordTransactions(array_map(
+        static fn (string $reference): array => ['reference' => $reference, 'revision' => 2, 'transaction' => $transaction],
+        ['created', 'updated', 'unchanged', 'stale', 'invalid', 'kept'],
+    ));
+
+    $rows = PlatformTransactionOutbox::query()->orderBy('reference')->get()->keyBy('reference');
+
+    expect($rows->keys()->all())->toBe(['created', 'kept', 'unchanged', 'updated'])
+        ->and($rows['created'])
+        ->revision->toBe(2)
+        ->sent_revision->toBe(2)
+        ->status->toBe(OutboxStatus::Sent)
+        ->sent_at->not->toBeNull()
+        ->payload->toBe(resolve(TransactionOutbox::class)->payloadOf($transaction))
+        ->and($rows['kept'])->revision->toBe(5)->status->toBe(OutboxStatus::Pending)
+        ->and(resolve(ProfessionalOutbox::class)->declare('RSSMRA80A01H501U', ProfessionalRecordData::from(professional(['declared_at' => '2026-10-06T18:00:00+02:00']))))->not->toBeNull();
+    Queue::assertNotPushed(SendPlatformTransaction::class);
+});

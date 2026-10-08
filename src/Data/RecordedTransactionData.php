@@ -6,7 +6,7 @@ namespace ITuoiProfessionistiDigitali\Connector\Data;
 
 use Carbon\CarbonImmutable;
 use ITuoiProfessionistiDigitali\Connector\Contract;
-use ITuoiProfessionistiDigitali\Connector\Enums\TransactionKind;
+use ITuoiProfessionistiDigitali\Connector\Enums\Audience;
 use ITuoiProfessionistiDigitali\Connector\Enums\TransactionStatus;
 use Spatie\LaravelData\Attributes\DataCollectionOf;
 use Spatie\LaravelData\Attributes\WithCast;
@@ -20,20 +20,18 @@ final class RecordedTransactionData extends Data
 {
     /**
      * @param  list<RecordedTransactionActivityData>  $activities
-     * @param  list<string>|null  $open_to
      */
     public function __construct(
         public string $id,
         public string $origin,
         public ?string $reference,
         public ?string $assignment_reference,
-        public ?TransactionKind $kind,
-        public ?array $open_to,
+        public Audience $audience,
         public string $principal,
         public ?CounterpartyData $counterparty,
         public string $typology,
-        public ?string $title,
-        public ?string $description,
+        public string $title,
+        public string $description,
         public TransactionStatus $status,
         #[WithCast(DateTimeInterfaceCast::class, format: Contract::DATE_INPUT_FORMATS)]
         public CarbonImmutable $sent_at,

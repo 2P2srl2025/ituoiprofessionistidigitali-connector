@@ -49,9 +49,9 @@ final class ActivityDescriptionData extends Data
 
         // An empty name is no name: it must be null, as the schema wants it
         return [
-            'process' => [Rule::requiredIf(($description['process'] ?? null) === ''), 'nullable', self::name(...)],
-            'activity' => [Rule::requiredIf(($description['activity'] ?? null) === ''), 'nullable', self::name(...)],
-            'deadline' => ['nullable', 'string', 'date_format:Y-m-d'],
+            'process' => ['present', Rule::requiredIf(($description['process'] ?? null) === ''), 'nullable', self::name(...)],
+            'activity' => ['present', Rule::requiredIf(($description['activity'] ?? null) === ''), 'nullable', self::name(...)],
+            'deadline' => ['present', 'nullable', 'string', 'date_format:Y-m-d'],
         ];
     }
 

@@ -45,11 +45,12 @@ final class Assignment extends Model implements RecordsPlatformTransaction
 
         return TransactionData::from([
             'assignment_reference' => 'incarico-1',
-            'kind' => 'person_assignment',
+            'audience' => 'person',
             'principal' => self::PRINCIPAL,
-            'counterparty' => ['type' => 'person', 'tax_code' => 'RSSMRA80A01H501U', 'first_name' => 'Mario', 'last_name' => 'Rossi', 'email' => 'mario.rossi@example.com', 'vat_number' => null, 'municipality' => 'Bari', 'province' => 'BA'],
+            'counterparty' => ['type' => 'person', 'member_id' => null, 'tax_code' => 'RSSMRA80A01H501U', 'first_name' => 'Mario', 'last_name' => 'Rossi', 'email' => 'mario.rossi@example.com', 'vat_number' => null, 'municipality' => 'Bari', 'province' => 'BA'],
             'typology' => 'commercialisti',
             'title' => 'Contabilità ordinaria 2026',
+            'description' => 'Registrazione delle fatture del 2026.',
             'status' => $this->status,
             'sent_at' => '2026-10-06T18:00:00+02:00',
             'responded_at' => $isAnswered ? '2026-10-07T09:00:00+02:00' : null,

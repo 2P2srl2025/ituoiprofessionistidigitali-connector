@@ -15,6 +15,7 @@ use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformRequestException;
 use ITuoiProfessionistiDigitali\Connector\Jobs\SendPlatformProfessional;
 use ITuoiProfessionistiDigitali\Connector\Jobs\SendPlatformTransaction;
 use ITuoiProfessionistiDigitali\Connector\Models\PlatformProfessionalOutbox;
+use ITuoiProfessionistiDigitali\Connector\Models\PlatformTransactionOutbox;
 use ITuoiProfessionistiDigitali\Connector\Outbox\ProfessionalOutbox;
 use ITuoiProfessionistiDigitali\Connector\PlatformClient;
 
@@ -24,6 +25,9 @@ beforeEach(function (): void {
     Queue::fake();
     Http::preventStrayRequests();
     $this->travelTo(CarbonImmutable::parse('2026-10-08T10:20:00+02:00'));
+    // A transaction to the person already confirmed: the platform knows the professional
+    sentAssignment();
+    PlatformTransactionOutbox::query()->update(['sent_revision' => 1, 'status' => OutboxStatus::Sent]);
     $this->row = resolve(ProfessionalOutbox::class)->declare('RSSMRA80A01H501U', ProfessionalRecordData::from(professional()));
 });
 
@@ -74,7 +78,7 @@ it('R19: leaves pending a newer declaration that arrived while sending', functio
 });
 
 it('R18: waits on a 404 while the outbox has transactions to the person never confirmed', function (): void {
-    sentAssignment();
+    PlatformTransactionOutbox::query()->update(['sent_revision' => null, 'status' => OutboxStatus::Pending]);
     platformAnsweringDeclarations(404, ['message' => 'Professionista non trovato.']);
 
     declareOnPlatform();
@@ -159,7 +163,7 @@ it('does nothing for a declaration no longer pending or a tax code it does not k
     Http::fake();
 
     declareOnPlatform();
-    declareOnPlatform('BNCLRA85T41F205X');
+    declareOnPlatform('BNCLRA85T41F205Y');
 
     Http::assertNothingSent();
 });

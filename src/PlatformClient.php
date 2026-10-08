@@ -26,10 +26,12 @@ use ITuoiProfessionistiDigitali\Connector\Data\TransactionData;
 use ITuoiProfessionistiDigitali\Connector\Data\TransactionOutcomeData;
 use ITuoiProfessionistiDigitali\Connector\Data\TransactionPage;
 use ITuoiProfessionistiDigitali\Connector\Data\TypologyData;
+use ITuoiProfessionistiDigitali\Connector\Enums\Audience;
 use ITuoiProfessionistiDigitali\Connector\Enums\SystemStatus;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformNotConfiguredException;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformRequestException;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\ProfessionalNotAssignedException;
+use ITuoiProfessionistiDigitali\Connector\Outbox\TransactionOutbox;
 use ITuoiProfessionistiDigitali\Connector\Validation\PayloadValidator;
 use Throwable;
 
@@ -47,6 +49,7 @@ final readonly class PlatformClient
         private Http $http,
         private Cache $cache,
         private ConnectorConfig $config,
+        private TransactionOutbox $outbox,
     ) {}
 
     /**
@@ -172,6 +175,8 @@ final readonly class PlatformClient
 
     /**
      * POST /transactions/batch: the history, up to 500 transactions, each with its outcome (rule R10).
+     * Every transaction the platform has as sent is kept in the outbox as confirmed: the outbox then knows
+     * every person the system assigned (rule R18).
      *
      * @param  list<array{reference: string, revision: int, transaction: TransactionData}>  $transactions
      * @return list<TransactionOutcomeData>
@@ -193,10 +198,22 @@ final readonly class PlatformClient
             return ['reference' => $item['reference'], ...$item['transaction']->toWire($item['revision'])];
         }, $transactions);
 
-        return array_map(
+        $outcomes = array_map(
             TransactionOutcomeData::from(...),
             $this->list($this->request('POST', 'transactions/batch', ['transactions' => $body])),
         );
+
+        $sent = array_column($transactions, null, 'reference');
+
+        foreach ($outcomes as $outcome)
+        {
+            if (is_string($outcome->reference) && isset($sent[$outcome->reference]) && $outcome->result->isRecorded())
+            {
+                $this->outbox->confirmed($outcome->reference, $sent[$outcome->reference]['transaction'], $sent[$outcome->reference]['revision']);
+            }
+        }
+
+        return $outcomes;
     }
 
     /**
@@ -223,11 +240,11 @@ final readonly class PlatformClient
     /**
      * GET /transactions: the transactions of the members of the system (rule R11).
      */
-    public function transactions(?string $status = null, ?string $kind = null, ?DateTimeInterface $updatedSince = null, ?int $perPage = null, ?string $cursor = null): TransactionPage
+    public function transactions(?string $status = null, ?Audience $audience = null, ?DateTimeInterface $updatedSince = null, ?int $perPage = null, ?string $cursor = null): TransactionPage
     {
         $response = $this->request('GET', 'transactions', array_filter([
             'status' => $status,
-            'kind' => $kind,
+            'audience' => $audience?->value,
             'updated_since' => $updatedSince === null ? null : CarbonImmutable::instance($updatedSince)->format(Contract::DATE_FORMAT),
             'per_page' => $perPage,
             'cursor' => $cursor,

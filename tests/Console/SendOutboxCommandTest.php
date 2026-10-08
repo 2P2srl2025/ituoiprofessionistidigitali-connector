@@ -41,7 +41,7 @@ it('queues again only the versions not yet confirmed', function (): void {
 
 it('R18: queues again the declarations still pending', function (): void {
     Queue::fake();
-    foreach (['RSSMRA80A01H501U' => OutboxStatus::Pending, 'BNCLRA85T41F205X' => OutboxStatus::Discarded, 'VRDGPP70A01F205Y' => OutboxStatus::Sent] as $taxCode => $status)
+    foreach (['RSSMRA80A01H501U' => OutboxStatus::Pending, 'BNCLRA85T41F205Y' => OutboxStatus::Discarded, 'VRDGPP70A01F205Y' => OutboxStatus::Sent] as $taxCode => $status)
     {
         PlatformProfessionalOutbox::query()->create(['tax_code' => $taxCode, 'revision' => 1, 'payload' => professional(), 'status' => $status]);
     }

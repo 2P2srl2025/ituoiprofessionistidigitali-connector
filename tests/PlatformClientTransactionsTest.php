@@ -2,18 +2,22 @@
 
 declare(strict_types=1);
 
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
 use ITuoiProfessionistiDigitali\Connector\ConnectorConfig;
 use ITuoiProfessionistiDigitali\Connector\Contract;
 use ITuoiProfessionistiDigitali\Connector\Data\TransactionData;
+use ITuoiProfessionistiDigitali\Connector\Enums\Audience;
 use ITuoiProfessionistiDigitali\Connector\Enums\TransactionActivityStatus;
 use ITuoiProfessionistiDigitali\Connector\Enums\TransactionResult;
 use ITuoiProfessionistiDigitali\Connector\Enums\TransactionStatus;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformRequestException;
 use ITuoiProfessionistiDigitali\Connector\Facades\Platform;
 use ITuoiProfessionistiDigitali\Connector\PlatformClient;
+
+uses(RefreshDatabase::class);
 
 beforeEach(function (): void {
     Http::preventStrayRequests();
@@ -31,7 +35,9 @@ it('R7: registers a transaction with its revision under its reference', function
 
     expect($recorded->status)->toBe(TransactionStatus::Invited)
         ->and($recorded->id)->toBe(recordedTransaction()['id'])
+        ->and($recorded->audience)->toBe(Audience::Person)
         ->and($recorded->counterparty?->last_name)->toBe('Rossi')
+        ->and($recorded->counterparty?->member_id)->toBeNull()
         ->and($recorded->counterparty?->province)->toBe('BA')
         ->and($recorded->total_cents)->toBe(9000)
         ->and($recorded->activities[0]->total_cents)->toBe(9000)
@@ -127,19 +133,18 @@ it('R11: reads the transactions of the system with filters and cursor', function
         'meta' => ['next_cursor' => 'abc'],
     ])]);
 
-    $page = Platform::transactions(status: 'accepted', kind: 'person_assignment', updatedSince: new DateTimeImmutable('2026-10-07T12:00:00+02:00'), perPage: 10, cursor: 'start');
+    $page = Platform::transactions(status: 'accepted', audience: Audience::Person, updatedSince: new DateTimeImmutable('2026-10-07T12:00:00+02:00'), perPage: 10, cursor: 'start');
 
     expect($page->transactions[0]->reference)->toBe('invio-1')
         ->and($page->nextCursor)->toBe('abc')
         ->and($page->hasMore())->toBeTrue();
-    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://platform.test/api/v1/transactions?status=accepted&kind=person_assignment&updated_since=2026-10-07T12%3A00%3A00%2B02%3A00&per_page=10&cursor=start');
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://platform.test/api/v1/transactions?status=accepted&audience=person&updated_since=2026-10-07T12%3A00%3A00%2B02%3A00&per_page=10&cursor=start');
 });
 
 it('R3 and R11: reads a published transaction, without counterparty', function (): void {
     withToken(['platform.test/api/v1/transactions*' => Http::response(['data' => [recordedTransaction([
         'origin' => 'platform',
-        'kind' => null,
-        'open_to' => ['person', 'member'],
+        'audience' => 'any',
         'counterparty' => null,
         'title' => 'Contabilità di una srl',
         'description' => 'Registrazione delle fatture.',
@@ -150,8 +155,7 @@ it('R3 and R11: reads a published transaction, without counterparty', function (
     $published = Platform::transactions()->transactions[0];
 
     expect($published->counterparty)->toBeNull()
-        ->and($published->kind)->toBeNull()
-        ->and($published->open_to)->toBe(['person', 'member'])
+        ->and($published->audience)->toBe(Audience::Any)
         ->and($published->title)->toBe('Contabilità di una srl')
         ->and($published->description)->toBe('Registrazione delle fatture.')
         ->and($published->status)->toBe(TransactionStatus::Published)

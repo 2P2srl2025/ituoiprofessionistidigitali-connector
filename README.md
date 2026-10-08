@@ -122,19 +122,21 @@ final class HandlePlatformEvent implements ShouldQueue
 
 Ogni incarico inviato si registra sul portale quando nasce, e poi a ogni cambio (regola R9). Ogni PUT è la fotografia completa della transazione, quindi il portale accetta la prima registrazione in qualunque stato, purché coerente con le sue date e con le sue attività. Lo stesso dato copre i due casi:
 
-- incarico **affidato** a una controparte che il sistema conosce già: `counterparty` presente, stati `invited`, `accepted`, `declined`, `revoked`, `completed`;
-- incarico **pubblicato** sul portale: `counterparty` e `kind` a `null`, stati `published` e `withdrawn`, con `expires_at` e `open_to` (`person`, `member` o tutti e due).
+- incarico **affidato** a una controparte che il sistema conosce già: `counterparty` presente, `audience` uguale al suo tipo (`person` o `member`), `expires_at` a `null`, stati `invited`, `accepted`, `declined`, `revoked`, `completed`;
+- incarico **pubblicato** sul portale: `counterparty` a `null`, stati `published` e `withdrawn`, con `expires_at` e `audience` (`person`, `member` o `any`).
+
+La struttura è una sola: tutte le chiavi ci sono sempre, anche quando valgono `null`, nella testata (`counterparty`, `expires_at`, `responded_at`, `closed_at`), nella controparte, nelle attività, nel compenso e nella descrizione. Una chiave mancante è un 422; i DTO del pacchetto le emettono tutte. `audience` non cambia dopo la prima registrazione.
 
 Ogni transazione ha le sue attività (`TransactionActivityData`), ognuna con il proprio compenso a ore o a corpo, i minuti previsti (sempre obbligatori), lo stato, i minuti lavorati alla chiusura e la descrizione con i soli nomi del catalogo. `totalCents()` dà il totale come lo calcola il portale.
 
-La testata porta anche `title` (testo semplice, da 1 a 255 caratteri) e `description` (Markdown, al massimo 10000 caratteri; l'HTML dentro il testo non è un errore). Sono obbligatori in un incarico pubblicato, facoltativi negli altri. Regola R6: niente testo libero nelle descrizioni delle attività; `title` e `description` sono testi dello studio, senza dati del cliente; un incarico pubblicato li mostra sul portale.
+La testata porta anche `title` (testo semplice, da 1 a 255 caratteri) e `description` (Markdown, al massimo 10000 caratteri; l'HTML dentro il testo non è un errore). Sono obbligatori e non vuoti in ogni stato. Regola R6: niente testo libero nelle descrizioni delle attività; `title` e `description` sono testi dello studio, senza dati del cliente; un incarico pubblicato li mostra sul portale.
 
 I DTO sono tipizzati e non conoscono i modelli del sistema: è il sistema che mappa i suoi modelli su di loro, di solito in una sola classe.
 
 | DTO | Cosa porta |
 | --- | --- |
 | `TransactionData` | La testata dell'invio, con `title` e `description` dello studio, e le sue attività |
-| `CounterpartyData` | `CounterpartyData::person($codiceFiscale, $nome, $cognome, $email, $partitaIva, $comune, $provincia)`, gli ultimi quattro facoltativi: il portale crea o aggiorna il professionista per codice fiscale. Oppure `CounterpartyData::member($idAderente)` |
+| `CounterpartyData` | `CounterpartyData::person($codiceFiscale, $nome, $cognome, $email, $partitaIva, $comune, $provincia)`, gli ultimi quattro facoltativi: l'anagrafica al momento dell'invio, identica a ogni revisione (R13). Oppure `CounterpartyData::member($idAderente)`. Sul filo ha sempre le nove chiavi `type`, `member_id`, `tax_code`, `first_name`, `last_name`, `email`, `vat_number`, `municipality`, `province` |
 | `TransactionActivityData` | Un'attività: riferimento, compenso, minuti, stato, chiusura, descrizione |
 | `CompensationData` | `CompensationData::hourly($centesimiAllOra)` o `CompensationData::fixed($centesimi)` |
 | `ActivityDescriptionData` | Nome del processo e dell'attività nel catalogo, o `null`, e scadenza `Y-m-d` |
@@ -142,10 +144,12 @@ I DTO sono tipizzati e non conoscono i modelli del sistema: è il sistema che ma
 ```php
 $diretto = new TransactionData(
     assignment_reference: $incarico->uuid,
-    kind: TransactionKind::PersonAssignment,
+    audience: Audience::Person,
     principal: $idAderente,
     counterparty: CounterpartyData::person('RSSMRA80A01H501U', 'Mario', 'Rossi', 'mario.rossi@example.com', municipality: 'Bari', province: 'BA'),
     typology: 'commercialisti',
+    title: 'Contabilità ordinaria 2026',
+    description: 'Registrazione delle fatture del 2026.',
     status: TransactionStatus::Invited,
     sent_at: CarbonImmutable::parse($proposta->sent_at),
     activities: [new TransactionActivityData(
@@ -158,7 +162,9 @@ $diretto = new TransactionData(
 );
 ```
 
-Un incarico pubblicato ha `kind: null`, `counterparty: null`, `status: TransactionStatus::Published`, `expires_at` e `open_to: ['person', 'member']`. `TransactionData::from()` legge anche il corpo del portale, con la descrizione nella forma dello schema (`{"process": {"name": "…"}}`).
+Un incarico pubblicato ha `counterparty: null`, `status: TransactionStatus::Published`, `expires_at` e `audience: Audience::Any` (o `Person`, `Member`). I minuti lavorati dipendono dal tipo della controparte: con una persona sono obbligatori in un'attività `completed`, con un aderente o senza controparte sono sempre `null` (R5).
+
+La parte ferma all'invio (audience, controparte, tipologia, testi, prezzi) non cambia fra una revisione e l'altra (R13). Il modello che registra la transazione la costruisce da quello che ha fotografato all'invio, non dalle anagrafiche di oggi; un cambio dell'anagrafica si dichiara a parte (vedi «Anagrafica dei professionisti»). `TransactionData::from()` legge anche il corpo del portale, con la descrizione nella forma dello schema (`{"process": {"name": "…"}}`).
 
 Il modello che corrisponde all'invio lo dichiara con un'interfaccia, e il pacchetto fa il resto:
 
@@ -206,7 +212,7 @@ final class ExternalAssignmentActivity extends Model implements AffectsPlatformT
 - `$model->isRecordedOnPlatform()` dice se il portale ha confermato la versione attuale. La registrazione segue il lavoro, non lo blocca.
 - Ogni cinque minuti il comando schedulato `platform:send-outbox` rimanda le versioni rimaste indietro, per esempio mentre il sistema era in attesa di verifica.
 - Una transazione non si cancella: un invio ritirato si salva come `revoked`, con tutte le attività chiuse.
-- Lo storico si carica con `Platform::recordTransactions()`, fino a 500 per chiamata, con le stesse regole della PUT (R10); `Platform::transactions()` legge il registro del sistema.
+- Lo storico si carica con `Platform::recordTransactions()`, fino a 500 per chiamata, con le stesse regole della PUT (R10). Ogni transazione che il portale ha (`created`, `updated`, `unchanged`) entra nella outbox come già confermata, così la outbox conosce ogni persona incaricata. `Platform::transactions()` legge il registro del sistema, con il filtro `audience`.
 - Nei test del sistema `PlatformOutbox::assertRecorded($model)` verifica che la versione attuale sia nella outbox, `PlatformOutbox::assertNotRecorded($model)` che una bozza non ci sia.
 
 ## Anagrafica dei professionisti
@@ -228,6 +234,7 @@ resolve(ProfessionalOutbox::class)->declare($collaboratore->codice_fiscale, new 
 ```
 
 - L'anagrafica è sempre completa: un campo facoltativo a `null` toglie il dato sul portale. L'email si manda solo se lo studio ha la base per comunicarla. `declared_at` non può essere oltre 5 minuti nel futuro.
+- Una persona mai incaricata non arriva al portale: senza una riga della outbox delle transazioni con quel codice fiscale, in qualunque stato, `declare()` non tiene né manda nulla e restituisce `null`. Il sistema può chiamarla a ogni cambio dell'anagrafica, senza condizioni sue.
 - L'outbox delle dichiarazioni (tabella `platform_professional_outbox`) tiene l'ultima per codice fiscale: ignora una dichiarazione più vecchia e una con la stessa anagrafica. La manda in coda dopo il commit.
 - Il portale risponde 404 finché non ha una transazione a persona del sistema con quel codice fiscale. Se l'outbox delle transazioni ne ha ancora di mai confermate, la dichiarazione aspetta e riparte da sola quando una è confermata; altrimenti si chiude come `discarded`, con un log, e non è un errore (per esempio un codice fiscale corretto dopo l'invio).
 - Un 204 chiude la dichiarazione anche quando il portale tiene la sua anagrafica, più recente o bloccata (R20): il sistema non lo sa e non deve saperlo.

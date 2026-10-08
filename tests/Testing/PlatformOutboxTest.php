@@ -46,6 +46,7 @@ it('R9: tells that a draft never reached the outbox', function (): void {
 it('R18: passes when the outbox has the declaration, and only then', function (): void {
     $this->travelTo(CarbonImmutable::parse('2026-10-08T10:20:00+02:00'));
     $record = ProfessionalRecordData::from(professional());
+    sentAssignment();
 
     expect(fn () => PlatformOutbox::assertDeclared('RSSMRA80A01H501U', $record))->toThrow(AssertionFailedError::class, 'non è nella outbox');
 

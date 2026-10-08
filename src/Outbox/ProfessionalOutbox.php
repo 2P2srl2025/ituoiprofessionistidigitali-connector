@@ -16,9 +16,11 @@ use ITuoiProfessionistiDigitali\Connector\Models\PlatformTransactionOutbox;
 /**
  * Keeps the latest declaration of the record of every professional and sends it after the commit (rules R18 and R19).
  *
- * The platform answers 404 until it has a transaction of the system to the person. A first registration carries
- * the record of its sending, older than the declaration: so a 404 waits while the outbox of the transactions has
- * some to the person never confirmed, and the declaration leaves again when one is.
+ * A person the system never assigned never reaches the platform: without a row of the outbox of the transactions
+ * to the tax code, in any status, a declaration is dropped. The platform answers 404 until it has a transaction of
+ * the system to the person. A first registration carries the record of its sending, older than the declaration:
+ * so a 404 waits while the outbox of the transactions has some to the person never confirmed, and the declaration
+ * leaves again when one is.
  */
 final readonly class ProfessionalOutbox
 {
@@ -26,12 +28,18 @@ final readonly class ProfessionalOutbox
 
     /**
      * Keeps the declaration unless the outbox has a newer one, or the same record: only the date would change.
+     * Null, with nothing kept nor sent, for a person the system never assigned.
      *
      * @throws ValidationException
      */
-    public function declare(string $taxCode, ProfessionalRecordData $record): PlatformProfessionalOutbox
+    public function declare(string $taxCode, ProfessionalRecordData $record): ?PlatformProfessionalOutbox
     {
         ProfessionalRecordData::check($taxCode, $record);
+
+        if (!PlatformTransactionOutbox::query()->where('payload->counterparty->tax_code', $taxCode)->exists())
+        {
+            return null;
+        }
 
         $payload = $record->toWire();
         $row = PlatformProfessionalOutbox::query()->firstOrNew(['tax_code' => $taxCode]);

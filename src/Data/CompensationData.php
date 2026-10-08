@@ -40,8 +40,8 @@ final class CompensationData extends Data
 
         return [
             'form' => ['required', Rule::enum(CompensationForm::class)],
-            'hourly_rate_cents' => [Rule::requiredIf($isHourly), Rule::prohibitedIf(!$isHourly), 'nullable', 'integer', 'min:0'],
-            'fixed_amount_cents' => [Rule::requiredIf(!$isHourly), Rule::prohibitedIf($isHourly), 'nullable', 'integer', 'min:0'],
+            'hourly_rate_cents' => ['present', Rule::requiredIf($isHourly), Rule::prohibitedIf(!$isHourly), 'nullable', 'integer', 'min:0'],
+            'fixed_amount_cents' => ['present', Rule::requiredIf(!$isHourly), Rule::prohibitedIf($isHourly), 'nullable', 'integer', 'min:0'],
         ];
     }
 
