@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ITuoiProfessionistiDigitali\Connector\Outbox;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Arr;
 use Illuminate\Validation\ValidationException;
 use ITuoiProfessionistiDigitali\Connector\ConnectorConfig;
 use ITuoiProfessionistiDigitali\Connector\Data\ProfessionalRecordData;
@@ -36,15 +37,16 @@ final readonly class ProfessionalOutbox
     {
         ProfessionalRecordData::check($taxCode, $record);
 
-        if (!PlatformTransactionOutbox::query()->where('payload->counterparty->tax_code', $taxCode)->exists())
+        $payload = $record->toWire();
+        $row = PlatformProfessionalOutbox::query()->firstOrNew(['tax_code' => $taxCode]);
+
+        // A row already kept proves an assignment: only a first declaration looks for one
+        if (!$row->exists && !PlatformTransactionOutbox::query()->toPerson($taxCode)->exists())
         {
             return null;
         }
 
-        $payload = $record->toWire();
-        $row = PlatformProfessionalOutbox::query()->firstOrNew(['tax_code' => $taxCode]);
-
-        if ($row->exists && ($this->isNewer($row, $record) || $this->withoutDate($row->payload) === $this->withoutDate($payload)))
+        if ($row->exists && ($this->isNewer($row, $record) || Arr::except($row->payload, 'declared_at') === Arr::except($payload, 'declared_at')))
         {
             return $row;
         }
@@ -81,7 +83,7 @@ final readonly class ProfessionalOutbox
         return PlatformTransactionOutbox::query()
             ->where('status', OutboxStatus::Pending)
             ->whereNull('sent_revision')
-            ->where('payload->counterparty->tax_code', $taxCode)
+            ->toPerson($taxCode)
             ->exists();
     }
 
@@ -95,16 +97,5 @@ final readonly class ProfessionalOutbox
         $kept = $row->payload['declared_at'] ?? null;
 
         return is_string($kept) && CarbonImmutable::parse($kept)->greaterThan($record->declared_at);
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     * @return array<string, mixed>
-     */
-    private function withoutDate(array $payload): array
-    {
-        unset($payload['declared_at']);
-
-        return $payload;
     }
 }

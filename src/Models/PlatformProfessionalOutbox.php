@@ -7,6 +7,7 @@ namespace ITuoiProfessionistiDigitali\Connector\Models;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus;
+use ITuoiProfessionistiDigitali\Connector\Models\Concerns\HasOutboxColumns;
 
 /**
  * The latest declaration of the record of a professional to send to the platform, and what the platform answered.
@@ -25,24 +26,9 @@ use ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus;
  */
 final class PlatformProfessionalOutbox extends Model
 {
+    use HasOutboxColumns;
+
     protected $table = 'platform_professional_outbox';
 
     protected $guarded = ['id'];
-
-    /**
-     * @return array<string, string>
-     */
-    protected function casts(): array
-    {
-        return [
-            'revision' => 'integer',
-            'sent_revision' => 'integer',
-            'payload' => 'array',
-            'status' => OutboxStatus::class,
-            'attempts' => 'integer',
-            'sent_at' => 'immutable_datetime',
-            'created_at' => 'immutable_datetime',
-            'updated_at' => 'immutable_datetime',
-        ];
-    }
 }

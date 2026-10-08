@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace ITuoiProfessionistiDigitali\Connector\Console;
 
+use Closure;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use ITuoiProfessionistiDigitali\Connector\ConnectorConfig;
 use ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus;
 use ITuoiProfessionistiDigitali\Connector\Jobs\SendPlatformProfessional;
@@ -37,29 +39,28 @@ final class SendOutboxCommand extends Command
             ->where('status', OutboxStatus::Pending)
             ->where(fn (Builder $query): Builder => $query->whereNull('sent_revision')->orWhereColumn('sent_revision', '!=', 'revision'))
             ->pluck('reference');
-
-        foreach ($references as $reference)
-        {
-            if (is_string($reference))
-            {
-                dispatch(new SendPlatformTransaction($reference))->onQueue($config->queue);
-            }
-        }
-
+        $this->requeue($references, static fn (string $reference): SendPlatformTransaction => new SendPlatformTransaction($reference), $config->queue);
         $this->components->info("Transazioni rimesse in coda: {$references->count()}.");
 
         $taxCodes = PlatformProfessionalOutbox::query()->where('status', OutboxStatus::Pending)->pluck('tax_code');
-
-        foreach ($taxCodes as $taxCode)
-        {
-            if (is_string($taxCode))
-            {
-                dispatch(new SendPlatformProfessional($taxCode))->onQueue($config->queue);
-            }
-        }
-
+        $this->requeue($taxCodes, static fn (string $taxCode): SendPlatformProfessional => new SendPlatformProfessional($taxCode), $config->queue);
         $this->components->info("Anagrafiche rimesse in coda: {$taxCodes->count()}.");
 
         return self::SUCCESS;
+    }
+
+    /**
+     * @param  Collection<array-key, mixed>  $keys
+     * @param  Closure(string): object  $job
+     */
+    private function requeue(Collection $keys, Closure $job, ?string $queue): void
+    {
+        foreach ($keys as $key)
+        {
+            if (is_string($key))
+            {
+                dispatch($job($key))->onQueue($queue);
+            }
+        }
     }
 }

@@ -13,4 +13,12 @@ enum Audience: string
     case Person = 'person';
     case Member = 'member';
     case Any = 'any';
+
+    /**
+     * Whether a counterparty of this type may receive the assignment: anyone admits both.
+     */
+    public function admits(CounterpartyType $type): bool
+    {
+        return $this === self::Any || $this->value === $type->value;
+    }
 }

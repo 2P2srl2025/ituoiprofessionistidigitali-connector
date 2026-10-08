@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace ITuoiProfessionistiDigitali\Connector\Jobs;
 
-use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
@@ -13,6 +12,7 @@ use ITuoiProfessionistiDigitali\Connector\Data\ProfessionalRecordData;
 use ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformRequestException;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\ProfessionalNotAssignedException;
+use ITuoiProfessionistiDigitali\Connector\Jobs\Concerns\SendsOutboxRow;
 use ITuoiProfessionistiDigitali\Connector\Models\PlatformProfessionalOutbox;
 use ITuoiProfessionistiDigitali\Connector\Outbox\ProfessionalOutbox;
 use ITuoiProfessionistiDigitali\Connector\PlatformClient;
@@ -25,32 +25,16 @@ use ITuoiProfessionistiDigitali\Connector\PlatformClient;
 final class SendPlatformProfessional implements ShouldQueue
 {
     use Queueable;
-
-    public int $tries = 10;
+    use SendsOutboxRow;
 
     public function __construct(public string $taxCode) {}
-
-    /**
-     * @return list<int>
-     */
-    public function backoff(): array
-    {
-        return [60, 300, 900, 1800, 3600];
-    }
 
     public function handle(PlatformClient $client, ConnectorConfig $config, ProfessionalOutbox $outbox): void
     {
         $row = PlatformProfessionalOutbox::query()->where('tax_code', $this->taxCode)->first();
 
-        if (!$row instanceof PlatformProfessionalOutbox || $row->status !== OutboxStatus::Pending)
+        if (!$row instanceof PlatformProfessionalOutbox || $row->status !== OutboxStatus::Pending || $this->waitsForConnection($config, $row))
         {
-            return;
-        }
-
-        if (!$config->isConnected())
-        {
-            $row->update(['last_error' => __('Il sistema non è collegato al portale.')]);
-
             return;
         }
 
@@ -65,44 +49,36 @@ final class SendPlatformProfessional implements ShouldQueue
         }
         catch (ProfessionalNotAssignedException)
         {
-            if ($isAwaited)
-            {
-                $row->update(['last_error' => __('In attesa della registrazione delle transazioni al professionista.')]);
-
-                return;
-            }
-
-            PlatformProfessionalOutbox::query()->whereKey($row->id)->where('revision', $revision)->update([
-                'status' => OutboxStatus::Discarded,
-                'last_error' => __('Il sistema non ha transazioni registrate al professionista.'),
-            ]);
-            Log::info('Dichiarazione dell\'anagrafica scartata: il portale non ha transazioni del sistema al professionista.', ['outbox_id' => $row->id]);
+            $this->notAssigned($row, $revision, $isAwaited);
 
             return;
         }
         catch (PlatformRequestException $exception)
         {
-            $isFinal = $exception->isContractViolation();
+            $this->refused($row, $exception, $exception->isContractViolation());
 
-            $row->update([
-                'status' => $isFinal ? OutboxStatus::Failed : OutboxStatus::Pending,
-                'last_error' => mb_trim($exception->getMessage().' '.json_encode($exception->errors, JSON_UNESCAPED_UNICODE)),
-            ]);
-
-            if ($isFinal)
-            {
-                return;
-            }
-
-            throw $exception;
+            return;
         }
 
-        // A newer declaration may have arrived meanwhile: it has its own job and its own revision
-        PlatformProfessionalOutbox::query()->whereKey($row->id)->update([
-            'sent_revision' => $revision,
-            'sent_at' => CarbonImmutable::now(),
-            'last_error' => null,
+        $this->confirmed($row, $revision);
+    }
+
+    /**
+     * The 404: it waits for the transactions to the person still to register, and is discarded without them.
+     */
+    private function notAssigned(PlatformProfessionalOutbox $row, int $revision, bool $isAwaited): void
+    {
+        if ($isAwaited)
+        {
+            $row->update(['last_error' => __('In attesa della registrazione delle transazioni al professionista.')]);
+
+            return;
+        }
+
+        PlatformProfessionalOutbox::query()->whereKey($row->id)->where('revision', $revision)->update([
+            'status' => OutboxStatus::Discarded,
+            'last_error' => __('Il sistema non ha transazioni registrate al professionista.'),
         ]);
-        PlatformProfessionalOutbox::query()->whereKey($row->id)->where('revision', $revision)->update(['status' => OutboxStatus::Sent]);
+        Log::info("Dichiarazione dell'anagrafica scartata: il portale non ha transazioni del sistema al professionista.", ['outbox_id' => $row->id]);
     }
 }

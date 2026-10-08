@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace ITuoiProfessionistiDigitali\Connector\Models;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus;
+use ITuoiProfessionistiDigitali\Connector\Models\Concerns\HasOutboxColumns;
 
 /**
  * The last version of a transaction to send to the register, and what the platform answered.
@@ -25,24 +27,20 @@ use ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus;
  */
 final class PlatformTransactionOutbox extends Model
 {
+    use HasOutboxColumns;
+
     protected $table = 'platform_transaction_outbox';
 
     protected $guarded = ['id'];
 
     /**
-     * @return array<string, string>
+     * The rows sent to the person with this tax code: the outbox keeps the counterparty of every sending (rule R18).
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
      */
-    protected function casts(): array
+    public function scopeToPerson(Builder $query, string $taxCode): Builder
     {
-        return [
-            'revision' => 'integer',
-            'sent_revision' => 'integer',
-            'payload' => 'array',
-            'status' => OutboxStatus::class,
-            'attempts' => 'integer',
-            'sent_at' => 'immutable_datetime',
-            'created_at' => 'immutable_datetime',
-            'updated_at' => 'immutable_datetime',
-        ];
+        return $query->where('payload->counterparty->tax_code', $taxCode);
     }
 }

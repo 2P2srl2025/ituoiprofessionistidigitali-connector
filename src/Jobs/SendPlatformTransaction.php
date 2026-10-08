@@ -4,92 +4,61 @@ declare(strict_types=1);
 
 namespace ITuoiProfessionistiDigitali\Connector\Jobs;
 
-use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use ITuoiProfessionistiDigitali\Connector\ConnectorConfig;
 use ITuoiProfessionistiDigitali\Connector\Data\TransactionData;
-use ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformRequestException;
+use ITuoiProfessionistiDigitali\Connector\Jobs\Concerns\SendsOutboxRow;
 use ITuoiProfessionistiDigitali\Connector\Models\PlatformTransactionOutbox;
 use ITuoiProfessionistiDigitali\Connector\Outbox\ProfessionalOutbox;
 use ITuoiProfessionistiDigitali\Connector\PlatformClient;
 
 /**
  * Sends the last version of a transaction to the register. Network errors and a system not yet active
- * are retried; a contract violation or a conflict stop it, with the error kept in the outbox. Once confirmed,
- * it sends again the declaration of the record of the person waiting for it (rule R18).
+ * are retried; a contract violation or a conflict stop it, with the error kept in the outbox. Once its first
+ * registration is confirmed, it sends again the declaration of the record of the person waiting for it (rule R18).
  */
 final class SendPlatformTransaction implements ShouldQueue
 {
     use Queueable;
-
-    public int $tries = 10;
+    use SendsOutboxRow;
 
     public function __construct(public string $reference) {}
-
-    /**
-     * @return list<int>
-     */
-    public function backoff(): array
-    {
-        return [60, 300, 900, 1800, 3600];
-    }
 
     public function handle(PlatformClient $client, ConnectorConfig $config, ProfessionalOutbox $professionals): void
     {
         $row = PlatformTransactionOutbox::query()->where('reference', $this->reference)->first();
 
-        if (!$row instanceof PlatformTransactionOutbox || $row->sent_revision === $row->revision)
+        if (!$row instanceof PlatformTransactionOutbox || $row->sent_revision === $row->revision || $this->waitsForConnection($config, $row))
         {
-            return;
-        }
-
-        if (!$config->isConnected())
-        {
-            $row->update(['last_error' => __('Il sistema non è collegato al portale.')]);
-
             return;
         }
 
         $revision = $row->revision;
+        $isFirstRegistration = $row->sent_revision === null;
+        $transaction = TransactionData::from($row->payload);
         $row->update(['attempts' => $row->attempts + 1]);
 
         try
         {
-            $client->recordTransaction($this->reference, TransactionData::from($row->payload), $revision);
+            $client->recordTransaction($this->reference, $transaction, $revision);
         }
         catch (PlatformRequestException $exception)
         {
-            $isFinal = $exception->isContractViolation() || $exception->isConflict();
+            $this->refused($row, $exception, $exception->isContractViolation() || $exception->isConflict());
 
-            $row->update([
-                'status' => $isFinal ? OutboxStatus::Failed : OutboxStatus::Pending,
-                'last_error' => mb_trim($exception->getMessage().' '.json_encode($exception->errors, JSON_UNESCAPED_UNICODE)),
-            ]);
-
-            if ($isFinal)
-            {
-                return;
-            }
-
-            throw $exception;
+            return;
         }
 
-        // Another change may have arrived meanwhile: it has its own job and its own revision
-        PlatformTransactionOutbox::query()->whereKey($row->id)->update([
-            'sent_revision' => $revision,
-            'sent_at' => CarbonImmutable::now(),
-            'last_error' => null,
-        ]);
-        PlatformTransactionOutbox::query()->whereKey($row->id)->where('revision', $revision)->update(['status' => OutboxStatus::Sent]);
+        $this->confirmed($row, $revision);
 
-        // A declaration of the record of the person may wait for this registration (rule R18)
-        $counterparty = $row->payload['counterparty'] ?? null;
+        // Only a first registration makes the platform know the person: a declaration of its record may wait for it
+        $taxCode = $transaction->counterparty?->tax_code;
 
-        if (is_array($counterparty) && is_string($counterparty['tax_code'] ?? null))
+        if ($isFirstRegistration && $taxCode !== null)
         {
-            $professionals->resume($counterparty['tax_code']);
+            $professionals->resume($taxCode);
         }
     }
 }

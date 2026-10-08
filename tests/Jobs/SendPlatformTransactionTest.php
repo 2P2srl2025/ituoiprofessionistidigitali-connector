@@ -67,6 +67,18 @@ it('R18: queues again the declaration of the person waiting for the confirmation
     Queue::assertPushed(SendPlatformProfessional::class, 2);
 });
 
+it('R18: leaves the declarations alone after a later revision: only a first registration makes the person known', function (): void {
+    platformAnsweringTransactions(200, ['data' => recordedTransaction()]);
+    $this->travelTo(CarbonImmutable::parse('2026-10-08T10:20:00+02:00'));
+    resolve(ProfessionalOutbox::class)->declare('RSSMRA80A01H501U', ProfessionalRecordData::from(professional()));
+    $this->row->update(['sent_revision' => 1, 'revision' => 2]);
+
+    send($this->assignment->uuid);
+
+    expect($this->row->refresh()->sent_revision)->toBe(2);
+    Queue::assertPushed(SendPlatformProfessional::class, 1);
+});
+
 it('R7: leaves pending a newer revision that arrived while sending', function (): void {
     Http::fake([
         'platform.test/oauth/token' => Http::response(['access_token' => 'token', 'expires_in' => 3600]),

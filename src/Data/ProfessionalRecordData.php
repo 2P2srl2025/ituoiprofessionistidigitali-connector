@@ -44,14 +44,36 @@ final class ProfessionalRecordData extends Data
         // An optional field given empty is an error, not a missing value
         $optional = static fn (string $field, mixed ...$rules): array => [Rule::requiredIf(($record[$field] ?? null) === ''), 'nullable', ...array_values($rules)];
 
+        $details = self::detailRules();
+
         return [
-            'first_name' => ['required', 'string', 'max:255'],
-            'last_name' => ['required', 'string', 'max:255'],
-            'email' => $optional('email', 'string', 'email', 'max:255'),
-            'vat_number' => $optional('vat_number', 'string', new ItalianVatNumber),
-            'municipality' => $optional('municipality', 'string', 'max:255'),
-            'province' => $optional('province', 'string', 'regex:/^[A-Z]{2}$/'),
+            'first_name' => ['required', ...$details['first_name']],
+            'last_name' => ['required', ...$details['last_name']],
+            'email' => $optional('email', ...$details['email']),
+            'vat_number' => $optional('vat_number', ...$details['vat_number']),
+            'municipality' => $optional('municipality', ...$details['municipality']),
+            'province' => $optional('province', ...$details['province']),
             'declared_at' => ['required', 'date', 'before_or_equal:'.CarbonImmutable::now()->addSeconds(Contract::DECLARATION_TOLERANCE_SECONDS)->format(Contract::DATE_FORMAT)],
+        ];
+    }
+
+    /**
+     * The form of the details of a person, the same in the record and in the counterparty of a transaction
+     * (rules R3 and R18). Whether a field is required is up to each of them.
+     *
+     * @internal
+     *
+     * @return array{first_name: list<mixed>, last_name: list<mixed>, email: list<mixed>, vat_number: list<mixed>, municipality: list<mixed>, province: list<mixed>}
+     */
+    public static function detailRules(): array
+    {
+        return [
+            'first_name' => ['string', 'max:255'],
+            'last_name' => ['string', 'max:255'],
+            'email' => ['string', 'email', 'max:255'],
+            'vat_number' => ['string', new ItalianVatNumber],
+            'municipality' => ['string', 'max:255'],
+            'province' => ['string', 'regex:/^[A-Z]{2}$/'],
         ];
     }
 
@@ -62,10 +84,7 @@ final class ProfessionalRecordData extends Data
      */
     public static function check(string $taxCode, self $record): void
     {
-        if (!ItalianTaxCode::isValidForPerson($taxCode))
-        {
-            throw ValidationException::withMessages(['tax_code' => __('Il codice fiscale non è valido.')]);
-        }
+        validator(['tax_code' => $taxCode], ['tax_code' => ['required', 'string', new ItalianTaxCode(personOnly: true)]])->validate();
 
         self::validate($record->toWire());
     }

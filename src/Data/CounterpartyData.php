@@ -9,7 +9,6 @@ use Illuminate\Validation\Rule;
 use ITuoiProfessionistiDigitali\Connector\Enums\Audience;
 use ITuoiProfessionistiDigitali\Connector\Enums\CounterpartyType;
 use ITuoiProfessionistiDigitali\Connector\Validation\Rules\ItalianTaxCode;
-use ITuoiProfessionistiDigitali\Connector\Validation\Rules\ItalianVatNumber;
 use Spatie\LaravelData\Data;
 use Spatie\LaravelData\Support\Validation\ValidationContext;
 
@@ -72,17 +71,18 @@ final class CounterpartyData extends Data
         $isPerson = TransactionActivityData::value($counterparty['type'] ?? null) === CounterpartyType::Person->value;
         // An optional field of a person given empty is an error, not a missing value
         $person = static fn (string $field, mixed ...$rules): array => self::personRules($counterparty, $isPerson, $field, $rules);
+        $details = ProfessionalRecordData::detailRules();
 
         return [
             'type' => ['required', Rule::enum(CounterpartyType::class), self::followsAudience($transaction['audience'] ?? null)],
             'member_id' => ['present', Rule::requiredIf(!$isPerson), Rule::prohibitedIf($isPerson), 'nullable', 'uuid'],
             'tax_code' => [Rule::requiredIf($isPerson), ...$person('tax_code', 'string', new ItalianTaxCode(personOnly: true))],
-            'first_name' => [Rule::requiredIf($isPerson), ...$person('first_name', 'string', 'max:255')],
-            'last_name' => [Rule::requiredIf($isPerson), ...$person('last_name', 'string', 'max:255')],
-            'email' => $person('email', 'string', 'email', 'max:255'),
-            'vat_number' => $person('vat_number', 'string', new ItalianVatNumber),
-            'municipality' => $person('municipality', 'string', 'max:255'),
-            'province' => $person('province', 'string', 'regex:/^[A-Z]{2}$/'),
+            'first_name' => [Rule::requiredIf($isPerson), ...$person('first_name', ...$details['first_name'])],
+            'last_name' => [Rule::requiredIf($isPerson), ...$person('last_name', ...$details['last_name'])],
+            'email' => $person('email', ...$details['email']),
+            'vat_number' => $person('vat_number', ...$details['vat_number']),
+            'municipality' => $person('municipality', ...$details['municipality']),
+            'province' => $person('province', ...$details['province']),
         ];
     }
 
@@ -123,12 +123,14 @@ final class CounterpartyData extends Data
      */
     private static function followsAudience(mixed $audience): Closure
     {
-        return static function (string $attribute, mixed $value, Closure $fail) use ($audience): void {
-            $audience = TransactionActivityData::value($audience);
+        $audience = Audience::tryFrom(TransactionActivityData::value($audience));
 
-            if (!in_array($audience, ['', Audience::Any->value], true) && $audience !== TransactionActivityData::value($value))
+        return static function (string $attribute, mixed $value, Closure $fail) use ($audience): void {
+            $type = CounterpartyType::tryFrom(TransactionActivityData::value($value));
+
+            if ($audience !== null && $type !== null && !$audience->admits($type))
             {
-                $fail("La controparte non è ammessa da audience {$audience}.");
+                $fail("La controparte non è ammessa da audience {$audience->value}.");
             }
         };
     }

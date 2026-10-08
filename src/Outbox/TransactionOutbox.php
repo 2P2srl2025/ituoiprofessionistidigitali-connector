@@ -59,26 +59,35 @@ final readonly class TransactionOutbox
     }
 
     /**
-     * A transaction the platform registered outside the outbox, from the history in batch: kept as confirmed,
-     * unless the outbox already has a newer revision (rule R10).
+     * Transactions the platform registered outside the outbox, from the history in batch: kept as confirmed,
+     * each unless the outbox already has a newer revision (rule R10). One read and one database transaction.
+     *
+     * @param  list<array{reference: string, revision: int, transaction: TransactionData}>  $transactions
      */
-    public function confirmed(string $reference, TransactionData $transaction, int $revision): void
+    public function confirmed(array $transactions): void
     {
-        $row = PlatformTransactionOutbox::query()->firstOrNew(['reference' => $reference]);
+        $rows = PlatformTransactionOutbox::query()->whereIn('reference', array_column($transactions, 'reference'))->get()->keyBy('reference');
 
-        if ($row->exists && $row->revision > $revision)
-        {
-            return;
-        }
+        PlatformTransactionOutbox::query()->getConnection()->transaction(function () use ($transactions, $rows): void {
+            foreach ($transactions as $item)
+            {
+                $row = $rows->get($item['reference']) ?? new PlatformTransactionOutbox(['reference' => $item['reference']]);
 
-        $row->fill([
-            'payload' => $this->payloadOf($transaction),
-            'revision' => $revision,
-            'sent_revision' => $revision,
-            'status' => OutboxStatus::Sent,
-            'last_error' => null,
-            'sent_at' => CarbonImmutable::now(),
-        ])->save();
+                if ($row->exists && $row->revision > $item['revision'])
+                {
+                    continue;
+                }
+
+                $row->fill([
+                    'payload' => $this->payloadOf($item['transaction']),
+                    'revision' => $item['revision'],
+                    'sent_revision' => $item['revision'],
+                    'status' => OutboxStatus::Sent,
+                    'last_error' => null,
+                    'sent_at' => CarbonImmutable::now(),
+                ])->save();
+            }
+        });
     }
 
     /**
