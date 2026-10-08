@@ -15,6 +15,7 @@ use Spatie\LaravelData\Support\Validation\ValidationContext;
 /**
  * Who receives the work: a professional with the details of the sending, or a member of the same system by its id
  * (rules R3 and R13). It has one form on the wire, with every key: null where the type does not use it.
+ * The email of a person is kept in lower case, as the platform stores and returns it (T6).
  */
 final class CounterpartyData extends Data
 {
@@ -33,7 +34,9 @@ final class CounterpartyData extends Data
         public ?string $vat_number = null,
         public ?string $municipality = null,
         public ?string $province = null,
-    ) {}
+    ) {
+        $this->email = $email === null ? null : mb_strtolower($email);
+    }
 
     public static function person(
         string $taxCode,

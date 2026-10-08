@@ -20,6 +20,7 @@ use Spatie\LaravelData\Transformers\DateTimeInterfaceTransformer;
 /**
  * The record of a professional as the system declares it when it changes, dated by the change (rules R18 and R19).
  * It is always complete: an optional field left null removes the data on the platform.
+ * The email is kept in lower case, as the platform stores and returns it (T6).
  */
 final class ProfessionalRecordData extends Data
 {
@@ -33,7 +34,9 @@ final class ProfessionalRecordData extends Data
         public ?string $vat_number = null,
         public ?string $municipality = null,
         public ?string $province = null,
-    ) {}
+    ) {
+        $this->email = mb_strtolower($email);
+    }
 
     /**
      * @return array<string, array<int, mixed>>

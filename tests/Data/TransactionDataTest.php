@@ -249,3 +249,10 @@ it('R8 and R14: checks an already built transaction, with enums', function (): v
     expect(fn () => TransactionData::validateAndCreate(transaction(['status' => TransactionStatus::Accepted])))
         ->toThrow(ValidationException::class);
 });
+
+it('T6: keeps the email of a person in lower case, however the counterparty is built', function (Closure $build): void {
+    expect($build('Mario.Rossi@Example.com')->email)->toBe(person()['email']);
+})->with([
+    'person' => [static fn (string $email): CounterpartyData => CounterpartyData::person('RSSMRA80A01H501U', 'Mario', 'Rossi', $email)],
+    'from' => [static fn (string $email): ?CounterpartyData => TransactionData::from(transaction(['counterparty' => person(['email' => $email])]))->counterparty],
+]);

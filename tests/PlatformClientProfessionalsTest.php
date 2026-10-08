@@ -26,6 +26,14 @@ it('R18: declares the complete record under the tax code', function (): void {
         && $request->data() === professional());
 });
 
+it('T6: declares the email in lower case', function (): void {
+    platformAnsweringProfessionals(204);
+
+    Platform::declareProfessional('RSSMRA80A01H501U', ProfessionalRecordData::from(professional(['email' => 'Mario.Rossi@Example.com'])));
+
+    Http::assertSent(fn (Request $request): bool => $request->data() === professional());
+});
+
 it('R18: tells a professional the system never assigned from the other errors', function (): void {
     platformAnsweringProfessionals(404, ['message' => 'Professionista non trovato.']);
 

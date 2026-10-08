@@ -44,6 +44,15 @@ it('R7: registers a transaction with its revision under its reference', function
         && $request->data()['activities'][0]['reference'] === 'riga-1');
 });
 
+it('T6: sends the email of a person counterparty in lower case', function (): void {
+    withToken(['platform.test/api/v1/transactions/*' => Http::response(['data' => recordedTransaction()], 201)]);
+    $counterparty = [...transaction()['counterparty'], 'email' => 'Mario.Rossi@Example.com'];
+
+    Platform::recordTransaction('invio-1', TransactionData::from(transaction(['counterparty' => $counterparty])), 1);
+
+    Http::assertSent(fn (Request $request): bool => $request->method() === 'PUT' && $request->data()['counterparty'] === transaction()['counterparty']);
+});
+
 it('R6: checks every description against the schema fixed in the package before sending', function (): void {
     withToken(['platform.test/api/v1/transactions/*' => Http::response(['data' => recordedTransaction()], 201)]);
 

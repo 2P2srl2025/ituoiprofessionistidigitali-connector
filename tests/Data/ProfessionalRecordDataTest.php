@@ -75,3 +75,10 @@ it('R19: accepts a date up to five minutes ahead', function (): void {
 
     expect(ProfessionalRecordData::validateAndCreate(professional())->last_name)->toBe('Rossi');
 });
+
+it('T6: keeps the email in lower case, however the record is built', function (Closure $build): void {
+    expect($build(professional(['email' => 'Mario.Rossi@Example.com']))->email)->toBe(professional()['email']);
+})->with([
+    'validateAndCreate' => [ProfessionalRecordData::validateAndCreate(...)],
+    'from' => [ProfessionalRecordData::from(...)],
+]);

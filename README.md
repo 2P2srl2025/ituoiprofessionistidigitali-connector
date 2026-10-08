@@ -162,7 +162,7 @@ I DTO sono tipizzati e non conoscono i modelli del sistema: è il sistema che ma
 | DTO | Cosa porta |
 | --- | --- |
 | `TransactionData` | La testata dell'invio, con `title` e `description` dello studio, e le sue attività |
-| `CounterpartyData` | `CounterpartyData::person($codiceFiscale, $nome, $cognome, $email, $partitaIva, $comune, $provincia)`, con l'email obbligatoria e gli ultimi tre facoltativi: l'anagrafica al momento dell'invio, identica a ogni revisione (R13). Oppure `CounterpartyData::member($idAderente)`. Sul filo ha sempre le nove chiavi `type`, `member_id`, `tax_code`, `first_name`, `last_name`, `email`, `vat_number`, `municipality`, `province` |
+| `CounterpartyData` | `CounterpartyData::person($codiceFiscale, $nome, $cognome, $email, $partitaIva, $comune, $provincia)`, con l'email obbligatoria e gli ultimi tre facoltativi: l'anagrafica al momento dell'invio, identica a ogni revisione (R13). Oppure `CounterpartyData::member($idAderente)`. L'email della persona va in minuscolo, come il portale la salva e la restituisce (T6). Sul filo ha sempre le nove chiavi `type`, `member_id`, `tax_code`, `first_name`, `last_name`, `email`, `vat_number`, `municipality`, `province` |
 | `TransactionActivityData` | Un'attività: riferimento, compenso, minuti, stato, chiusura, descrizione |
 | `CompensationData` | `CompensationData::hourly($centesimiAllOra)` o `CompensationData::fixed($centesimi)` |
 | `ActivityDescriptionData` | Nome del processo e dell'attività nel catalogo, o `null`, e scadenza `Y-m-d` |
@@ -260,7 +260,7 @@ resolve(ProfessionalOutbox::class)->declare($collaboratore->codice_fiscale, new 
 ));
 ```
 
-- L'anagrafica è sempre completa: un campo facoltativo a `null` toglie il dato sul portale. Nome, cognome ed email sono obbligatori, come nella controparte persona; facoltativi restano partita IVA, comune e provincia. `declared_at` non può essere oltre 5 minuti nel futuro.
+- L'anagrafica è sempre completa: un campo facoltativo a `null` toglie il dato sul portale. Nome, cognome ed email sono obbligatori, come nella controparte persona, e l'email va in minuscolo (T6); facoltativi restano partita IVA, comune e provincia. `declared_at` non può essere oltre 5 minuti nel futuro.
 - Una persona mai incaricata non arriva al portale: senza una riga della outbox delle transazioni con quel codice fiscale, in qualunque stato, `declare()` non tiene né manda nulla e restituisce `null`. Il sistema può chiamarla a ogni cambio dell'anagrafica, senza condizioni sue.
 - L'outbox delle dichiarazioni (tabella `platform_professional_outbox`) tiene l'ultima per codice fiscale: ignora una dichiarazione più vecchia e una con la stessa anagrafica. La manda in coda dopo il commit.
 - Il portale risponde 404 finché non ha una transazione a persona del sistema con quel codice fiscale. Se l'outbox delle transazioni ne ha ancora di mai confermate, la dichiarazione aspetta e riparte da sola quando una è confermata; altrimenti si chiude come `discarded`, con un log, e non è un errore (per esempio un codice fiscale corretto dopo l'invio).
