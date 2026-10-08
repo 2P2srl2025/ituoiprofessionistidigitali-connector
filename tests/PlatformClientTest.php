@@ -184,6 +184,21 @@ it('M3: does not publish a member built without validation', function (): void {
     Platform::syncMembers([MemberData::from(member(['vat_number' => '01234567890']))]);
 })->throws(ValidationException::class);
 
+it('M15: does not publish two members of the same request with the same email', function (): void {
+    Http::fake();
+
+    try
+    {
+        Platform::syncMembers([MemberData::from(member()), MemberData::from(member(['external_ref' => 'struttura-2']))]);
+        $this->fail('The emails should be refused.');
+    }
+    catch (ValidationException $exception)
+    {
+        expect($exception->errors())->toHaveKey('members.1.email');
+        Http::assertNothingSent();
+    }
+});
+
 it('M6: does not publish more than a thousand members', function (): void {
     Http::fake();
     $member = MemberData::from(member());

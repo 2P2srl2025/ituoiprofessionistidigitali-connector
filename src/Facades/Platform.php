@@ -24,7 +24,7 @@ use ITuoiProfessionistiDigitali\Connector\PlatformClient;
  * @method static list<EventTypeData> eventTypes()
  * @method static list<RegisteredMemberData> syncMembers(list<MemberData> $members)
  * @method static MemberPage searchMembers(?string $typology = null, ?string $search = null, ?int $perPage = null, ?string $cursor = null)
- * @method static AccessLinkData memberAccessLink(string $memberId, string $userRef, ?string $userName = null)
+ * @method static AccessLinkData memberAccessLink(string $memberId)
  * @method static AcceptedEventData send(EnvelopeData $envelope)
  * @method static void declareProfessional(string $taxCode, ProfessionalRecordData $record)
  *

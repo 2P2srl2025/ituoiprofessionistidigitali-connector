@@ -15,7 +15,8 @@ use Spatie\LaravelData\Support\Validation\ValidationContext;
  * A member as the system publishes it with PUT /members.
  *
  * The rules repeat those of the platform (M3, M4, M14), so a mistake shows up while developing instead of as a 422.
- * The email is the address of the firm for the notifications of its area: required, and not unique among members.
+ * The email is the coworking email of the firm, the address for the notifications of its area: required, and unique
+ * among the members of the whole platform (M15): PlatformClient::syncMembers() checks it only within one request.
  * Whether the typologies exist and are active is checked by the platform only (M5).
  */
 final class MemberData extends Data

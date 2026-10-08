@@ -20,12 +20,12 @@ Regole per chi scrive codice che usa `ituoiprofessionistidigitali/connector` in 
 - Salva l'`id` che il portale restituisce per ogni aderente: è il `sender` dei tuoi eventi. Gli id degli altri sistemi arrivano da `Platform::searchMembers()` o dagli eventi ricevuti.
 - `listed: false` tiene l'aderente fuori dalla ricerca, ma non dagli scambi.
 - Partita IVA e codice fiscale vanno in maiuscolo, senza spazi: il pacchetto e il portale verificano anche il carattere di controllo.
-- Ogni aderente ha `email`, obbligatoria: è l'indirizzo della struttura per le notifiche della sua area (M14). Non è unica e non fa da chiave né da login: non usarla per riconoscere un aderente. Gli aderenti degli altri sistemi non la mostrano mai.
+- Ogni aderente ha `email`, obbligatoria: è l'email coworking della struttura, l'indirizzo per le notifiche della sua area (M14). È unica fra gli aderenti di tutto il portale (M15): una già usata da un aderente di un altro sistema è un 422 su `members.N.email`, da risolvere con lo studio, non da ritentare. Non fa da login: per riconoscere un aderente usa `external_ref` o il suo `id`. Gli aderenti degli altri sistemi non la mostrano mai.
 
 ## Accesso all'area dello studio
 
-- Per portare un utente nell'area di un aderente chiedi un link con `Platform::memberAccessLink($idAderente, $userRef, $userName)` e fai subito il redirect del browser a `$link->url`. Non scrivere un'altra chiamata a `/members/{id}/access-links`.
-- `$userRef` è un riferimento opaco e stabile dell'utente, per esempio il suo id. Non mettere mai email o codice fiscale dell'utente in `$userRef` né in `$userName`.
+- Per portare un utente nell'area di un aderente chiedi un link con `Platform::memberAccessLink($idAderente)` e fai subito il redirect del browser a `$link->url`. Non scrivere un'altra chiamata a `/members/{id}/access-links`.
+- L'accesso è per studio, non per persona: il portale non sa chi ha cliccato. Se serve saperlo, registralo nel sistema.
 - Il link è un segreto e vale una volta sola: mai in cache, in un log (compresi Telescope e i listener delle risposte HTTP), in una vista o in una coda, e mai salvato per riusarlo. Chiedine uno nuovo a ogni accesso. Nei log, se serve, solo `expires_at`.
 - `MemberNotAccessibleException` è un 404: l'aderente non è del sistema, non esiste o è inattivo. Mostra un errore all'utente e non ritentare.
 

@@ -77,7 +77,7 @@ $members[0]->id;   // l'id del portale: il sender dei tuoi eventi
 
 L'elenco è **completo**: gli aderenti che mancano diventano inattivi.
 
-`email` è obbligatoria: è l'indirizzo della struttura per le notifiche della sua area sul portale (M14). Non è unica, perché più aderenti, anche dello stesso sistema, possono avere la stessa email, e non fa da login. La risposta di `syncMembers()` la riporta per ogni aderente. `searchMembers()` invece non la mostra mai, come il codice fiscale (M11).
+`email` è obbligatoria: è l'email coworking della struttura, l'indirizzo per le notifiche della sua area sul portale (M14). È unica fra gli aderenti di tutto il portale, di qualunque sistema (M15): una duplicata è un 422 su `members.N.email`. Il pacchetto controlla solo che due aderenti della stessa richiesta non abbiano la stessa email, perché non conosce quelli degli altri sistemi. Non fa da login. La risposta di `syncMembers()` la riporta per ogni aderente. `searchMembers()` invece non la mostra mai, come il codice fiscale (M11).
 
 ```php
 $page = Platform::searchMembers(typology: 'commercialisti', search: 'bianchi');
@@ -89,14 +89,14 @@ $next = Platform::searchMembers(typology: 'commercialisti', cursor: $page->nextC
 
 ### Accesso all'area dello studio
 
-Un utente del sistema entra nell'area riservata di un suo aderente sul portale con un link firmato (regole U1–U4):
+Il sistema porta i suoi utenti nell'area riservata di un suo aderente sul portale con un link firmato (regole U1–U4). L'accesso è per studio e non per persona: la richiesta non ha corpo, e chi ha cliccato lo registra il sistema.
 
 ```php
 use ITuoiProfessionistiDigitali\Connector\Exceptions\MemberNotAccessibleException;
 
 try
 {
-    $link = Platform::memberAccessLink($aderente->platform_id, (string) $utente->id, $utente->name);
+    $link = Platform::memberAccessLink($aderente->platform_id);
 }
 catch (MemberNotAccessibleException)
 {
@@ -106,7 +106,6 @@ catch (MemberNotAccessibleException)
 return redirect()->away($link->url);
 ```
 
-- `user_ref` è il riferimento opaco dell'utente del sistema, da 1 a 191 caratteri: il portale lo conserva per sapere chi ha agito. `user_name` è il nome da mostrare nell'area, facoltativo. Mai email o codice fiscale dell'utente.
 - Il link vale **una volta sola** e scade dopo 5 minuti (`$link->expires_at`). Ogni chiamata ne crea uno nuovo.
 - Il link è un **segreto** (U4): usalo subito con un redirect del browser, senza conservarlo, metterlo in cache o scriverlo in un log. Se un log ha bisogno di un riferimento, usa solo `expires_at`. Il pacchetto non lo mette in cache e non lo scrive nei log. Se il sistema registra le risposte del client HTTP, per esempio con Telescope o con un listener di `ResponseReceived`, deve escludere questa rotta.
 - Un aderente di un altro sistema, inesistente o inattivo dà `MemberNotAccessibleException`: il portale non dice quale dei tre. Un aderente con `listed: false` ha il suo link come gli altri. Un sistema non attivo riceve 403, oltre 30 richieste al minuto 429, entrambi come `PlatformRequestException`.
@@ -272,7 +271,7 @@ resolve(ProfessionalOutbox::class)->declare($collaboratore->codice_fiscale, new 
 
 ## Errori
 
-Ogni rifiuto del portale è una `PlatformRequestException`, con `->status`, `->errors` (chiavi puntate come `payload.challenge`), `->reason` per i 403 (`SystemStatus`) e `->existingEvent` per i 409. Lo è anche quando il pacchetto rifiuta prima di mandare per lo schema del payload o per un limite, come le 500 transazioni. Un DTO che viola il contratto è invece una `ValidationException` di Laravel, con le stesse chiavi puntate in `->errors()`, prima di qualunque richiesta, e lo stesso vale per `user_ref` e `user_name` di `memberAccessLink()`. Due 404 hanno un'eccezione propria: `ProfessionalNotAssignedException` per l'anagrafica e `MemberNotAccessibleException` per il link d'accesso. Senza credenziali il client lancia `PlatformNotConfiguredException`.
+Ogni rifiuto del portale è una `PlatformRequestException`, con `->status`, `->errors` (chiavi puntate come `payload.challenge`), `->reason` per i 403 (`SystemStatus`) e `->existingEvent` per i 409. Lo è anche quando il pacchetto rifiuta prima di mandare per lo schema del payload o per un limite, come le 500 transazioni. Un DTO che viola il contratto è invece una `ValidationException` di Laravel, con le stesse chiavi puntate in `->errors()`, prima di qualunque richiesta, come due email uguali nella stessa `syncMembers()`. Due 404 hanno un'eccezione propria: `ProfessionalNotAssignedException` per l'anagrafica e `MemberNotAccessibleException` per il link d'accesso. Senza credenziali il client lancia `PlatformNotConfiguredException`.
 
 ## Sistemi non Laravel
 

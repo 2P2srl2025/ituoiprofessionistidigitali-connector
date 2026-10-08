@@ -12,7 +12,6 @@ use Illuminate\Http\Client\Factory as Http;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
-use Illuminate\Validation\ValidationException;
 use ITuoiProfessionistiDigitali\Connector\Data\AcceptedEventData;
 use ITuoiProfessionistiDigitali\Connector\Data\AccessLinkData;
 use ITuoiProfessionistiDigitali\Connector\Data\EnvelopeData;
@@ -98,6 +97,8 @@ final readonly class PlatformClient
 
     /**
      * PUT /members: the complete list of the system's members. Those left out become inactive.
+     * Two members of the request cannot share an email. The platform also refuses the email of a member of another
+     * system, which the package cannot know (rule M15).
      *
      * @param  list<MemberData>  $members
      * @return list<RegisteredMemberData>
@@ -119,6 +120,8 @@ final readonly class PlatformClient
         {
             MemberData::validate($member);
         }
+
+        validator(['members' => $payload], ['members.*.email' => ['distinct']])->validate();
 
         return array_map(
             RegisteredMemberData::from(...),
@@ -149,26 +152,18 @@ final readonly class PlatformClient
     }
 
     /**
-     * POST /members/{id}/access-links: a link to the area of the member on the platform for a user of the system,
-     * by an opaque reference and the name to show, never an email or a tax code (rules U1–U3). The link is a secret:
-     * see AccessLinkData.
+     * POST /members/{id}/access-links: a link to the area of the member on the platform (rules U1–U4). The access is
+     * for the firm, not for a person: the request has no body, and who clicked stays in the system. The link is a
+     * secret: see AccessLinkData.
      *
-     * @throws ValidationException
      * @throws MemberNotAccessibleException
      */
-    public function memberAccessLink(string $memberId, string $userRef, ?string $userName = null): AccessLinkData
+    public function memberAccessLink(string $memberId): AccessLinkData
     {
-        $body = ['user_ref' => $userRef, 'user_name' => $userName];
-
-        validator($body, [
-            'user_ref' => ['required', 'string', 'max:191'],
-            'user_name' => $userName === null ? [] : ['required', 'string', 'max:255'],
-        ])->validate();
-
         try
         {
             return AccessLinkData::from($this->data(
-                $this->request('POST', 'members/'.rawurlencode($memberId).'/access-links', $body),
+                $this->request('POST', 'members/'.rawurlencode($memberId).'/access-links'),
             ));
         }
         catch (PlatformRequestException $exception)
@@ -382,11 +377,18 @@ final readonly class PlatformClient
     }
 
     /**
+     * The body as the query of a GET or as JSON. An empty body is not sent at all, not even as an empty JSON array.
+     *
      * @param  array<string, mixed>  $body
      * @return array<string, mixed>
      */
     private function options(string $method, array $body): array
     {
+        if ($body === [])
+        {
+            return [];
+        }
+
         return $method === 'GET' ? ['query' => $body] : ['json' => $body];
     }
 
