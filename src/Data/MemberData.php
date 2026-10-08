@@ -14,7 +14,8 @@ use Spatie\LaravelData\Support\Validation\ValidationContext;
 /**
  * A member as the system publishes it with PUT /members.
  *
- * The rules repeat those of the platform (M3, M4), so a mistake shows up while developing instead of as a 422.
+ * The rules repeat those of the platform (M3, M4, M14), so a mistake shows up while developing instead of as a 422.
+ * The email is the address of the firm for the notifications of its area: required, and not unique among members.
  * Whether the typologies exist and are active is checked by the platform only (M5).
  */
 final class MemberData extends Data
@@ -32,6 +33,7 @@ final class MemberData extends Data
         public string $province,
         public array $typologies,
         public bool $listed,
+        public string $email,
     ) {}
 
     /**
@@ -64,6 +66,7 @@ final class MemberData extends Data
             'typologies' => ['required', 'array', 'min:1'],
             'typologies.*' => ['required', 'string', 'distinct'],
             'listed' => ['required', 'boolean'],
+            'email' => ['required', 'string', 'email', 'max:255'],
         ];
     }
 }

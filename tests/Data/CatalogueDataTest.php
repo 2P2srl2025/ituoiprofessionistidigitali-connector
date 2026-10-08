@@ -47,7 +47,7 @@ it('S6: reads a system before and after its verification', function (): void {
 });
 
 it('M13: tells whether a page of members has a next one', function (): void {
-    $member = ListedMemberData::from(collect(member())->except(['external_ref', 'tax_code', 'listed'])->put('id', 'x')->all());
+    $member = ListedMemberData::from(collect(member())->except(['external_ref', 'tax_code', 'listed', 'email'])->put('id', 'x')->all());
 
     expect(new MemberPage([$member], 'next', null)->hasMore())->toBeTrue()
         ->and(new MemberPage([], null, 'previous')->hasMore())->toBeFalse();

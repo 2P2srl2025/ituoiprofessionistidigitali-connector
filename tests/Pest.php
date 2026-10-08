@@ -42,6 +42,7 @@ function member(array $overrides = []): array
         'province' => 'BA',
         'typologies' => ['commercialisti'],
         'listed' => true,
+        'email' => 'segreteria@studiorossi.example',
         ...$overrides,
     ];
 }

@@ -12,7 +12,9 @@ use Illuminate\Http\Client\Factory as Http;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
+use Illuminate\Validation\ValidationException;
 use ITuoiProfessionistiDigitali\Connector\Data\AcceptedEventData;
+use ITuoiProfessionistiDigitali\Connector\Data\AccessLinkData;
 use ITuoiProfessionistiDigitali\Connector\Data\EnvelopeData;
 use ITuoiProfessionistiDigitali\Connector\Data\EventTypeData;
 use ITuoiProfessionistiDigitali\Connector\Data\ListedMemberData;
@@ -28,6 +30,7 @@ use ITuoiProfessionistiDigitali\Connector\Data\TransactionPage;
 use ITuoiProfessionistiDigitali\Connector\Data\TypologyData;
 use ITuoiProfessionistiDigitali\Connector\Enums\Audience;
 use ITuoiProfessionistiDigitali\Connector\Enums\SystemStatus;
+use ITuoiProfessionistiDigitali\Connector\Exceptions\MemberNotAccessibleException;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformNotConfiguredException;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformRequestException;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\ProfessionalNotAssignedException;
@@ -143,6 +146,35 @@ final readonly class PlatformClient
             nextCursor: is_string($nextCursor) ? $nextCursor : null,
             previousCursor: is_string($previousCursor) ? $previousCursor : null,
         );
+    }
+
+    /**
+     * POST /members/{id}/access-links: a link to the area of the member on the platform for a user of the system,
+     * by an opaque reference and the name to show, never an email or a tax code (rules U1–U3). The link is a secret:
+     * see AccessLinkData.
+     *
+     * @throws ValidationException
+     * @throws MemberNotAccessibleException
+     */
+    public function memberAccessLink(string $memberId, string $userRef, ?string $userName = null): AccessLinkData
+    {
+        $body = ['user_ref' => $userRef, 'user_name' => $userName];
+
+        validator($body, [
+            'user_ref' => ['required', 'string', 'max:191'],
+            'user_name' => $userName === null ? [] : ['required', 'string', 'max:255'],
+        ])->validate();
+
+        try
+        {
+            return AccessLinkData::from($this->data(
+                $this->request('POST', 'members/'.rawurlencode($memberId).'/access-links', $body),
+            ));
+        }
+        catch (PlatformRequestException $exception)
+        {
+            throw $exception->status === 404 ? new MemberNotAccessibleException($memberId) : $exception;
+        }
     }
 
     /**

@@ -26,5 +26,6 @@ final class RegisteredMemberData extends Data
         public string $province,
         public array $typologies,
         public bool $listed,
+        public string $email,
     ) {}
 }

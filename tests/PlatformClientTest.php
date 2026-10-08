@@ -166,7 +166,8 @@ it('M7: publishes the complete list of members and returns their ids', function 
 
     $registered = Platform::syncMembers([MemberData::validateAndCreate(member())]);
 
-    expect($registered[0]->id)->toBe('0199b6f0-4e2a-7b31-9f6c-2d8a1e5b7c43');
+    expect($registered[0]->id)->toBe('0199b6f0-4e2a-7b31-9f6c-2d8a1e5b7c43')
+        ->and($registered[0]->email)->toBe('segreteria@studiorossi.example');
     Http::assertSent(fn (Request $request): bool => $request->method() === 'PUT' && $request->data() === ['members' => [member()]]);
 });
 
@@ -209,6 +210,7 @@ it('M13: searches the members of the other systems with filters and cursor', fun
     $page = Platform::searchMembers(typology: 'commercialisti', search: 'bianchi', cursor: 'start');
 
     expect($page->members[0]->name)->toBe('Studio Bianchi')
+        ->and(property_exists($page->members[0], 'email'))->toBeFalse()
         ->and($page->nextCursor)->toBe('abc')
         ->and($page->previousCursor)->toBeNull();
     Http::assertSent(fn (Request $request): bool => $request->url() === 'https://platform.test/api/v1/members?typology=commercialisti&search=bianchi&cursor=start');

@@ -8,7 +8,8 @@ use ITuoiProfessionistiDigitali\Connector\Enums\SubjectType;
 use Spatie\LaravelData\Data;
 
 /**
- * A member of another system, as GET /members shows it: no tax code, no external_ref, no system (rules M11 and M12).
+ * A member of another system, as GET /members shows it: no tax code, no email, no external_ref, no system
+ * (rules M11 and M12).
  */
 final class ListedMemberData extends Data
 {

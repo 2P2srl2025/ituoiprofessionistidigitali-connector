@@ -66,6 +66,9 @@ it('M3: refuses the other malformed fields', function (array $overrides, string 
     'no typologies' => [['typologies' => []], 'typologies'],
     'repeated typology' => [['typologies' => ['commercialisti', 'commercialisti']], 'typologies.0'],
     'listed not boolean' => [['listed' => 'sometimes'], 'listed'],
+    'M14 without email' => [['email' => null], 'email'],
+    'M14 wrong email' => [['email' => 'segreteria'], 'email'],
+    'M14 email too long' => [['email' => str_repeat('a', 244).'@example.com'], 'email'],
 ]);
 
 it('M3: reads the subject type as an enum', function (): void {
