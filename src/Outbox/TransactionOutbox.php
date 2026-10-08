@@ -12,7 +12,9 @@ use ITuoiProfessionistiDigitali\Connector\Models\PlatformTransactionOutbox;
 
 /**
  * Keeps the last version of every transaction and sends it after the commit, with a new revision
- * only when something changed (rules R7 and R9).
+ * only when something changed (rules R7 and R9). Only the last version is needed: every PUT is the
+ * complete picture, so the platform accepts a first record in any status consistent with its dates
+ * and activities.
  */
 final readonly class TransactionOutbox
 {

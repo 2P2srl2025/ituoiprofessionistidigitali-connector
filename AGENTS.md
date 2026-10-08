@@ -45,7 +45,7 @@ Regole per chi scrive codice che usa `ituoiprofessionistidigitali/connector` in 
 
 ## Registro delle transazioni
 
-- Ogni incarico inviato va registrato sul portale **quando nasce**, e poi a ogni cambio: nello stato `invited` se è affidato a una controparte che il sistema conosce (collaboratore persona, altra struttura dello stesso sistema), nello stato `published`, senza controparte e con `expires_at`, se è pubblicato sul portale. Non è facoltativo: è la regola R9 del contratto.
+- Ogni incarico inviato va registrato sul portale **quando nasce**, e poi a ogni cambio: nello stato `invited` se è affidato a una controparte che il sistema conosce (collaboratore persona, altra struttura dello stesso sistema), nello stato `published`, senza controparte e con `expires_at`, se è pubblicato sul portale. Non è facoltativo: è la regola R9 del contratto. Ogni PUT è la fotografia completa della transazione, quindi il portale accetta la prima registrazione in qualunque stato, purché coerente con le sue date e con le sue attività: se l'invio di `invited` non è ancora riuscito quando il collaboratore accetta, l'outbox manda direttamente `accepted`, ed è corretto.
 - Una transazione è un invio con prezzi fermi: dopo la prima registrazione cambiano solo lo stato, le sue date e, per ogni attività, stato, minuti lavorati e chiusura (R13). Per cambiare un prezzo revoca l'attività e mandala in un invio nuovo, con un riferimento nuovo.
 - Lo stato segue le attività (R14): `invited`, `declined`, `published` e `withdrawn` le hanno tutte `open`; `accepted` almeno una `open`; `completed` nessuna `open` e almeno una `completed`; `revoked` nessuna `open` e nessuna `completed`. Un invio ritirato prima della risposta è `revoked`, con tutte le attività `revoked`.
 - I minuti previsti sono obbligatori su ogni attività, anche a ore: il totale c'è sempre. I minuti lavorati si mandano solo su un'attività chiusa di un incarico a persona.
@@ -59,7 +59,7 @@ Regole per chi scrive codice che usa `ituoiprofessionistidigitali/connector` in 
 - Il comando `platform:send-outbox` gira da solo ogni cinque minuti e rimanda le versioni rimaste indietro: serve che lo scheduler di Laravel sia attivo.
 - La descrizione `assignment` di ogni attività porta solo i nomi del modello di processo e dell'attività del catalogo dello studio, oppure `null`: **mai** il nome, il codice fiscale o la partita IVA del cliente, il nome di un'agenda o di un'area di progetto, né un testo libero.
 - R6: niente testo libero nelle descrizioni delle attività; `title` e `description` della testata sono testi dello studio, senza dati del cliente; un incarico pubblicato li mostra sul portale. In un incarico pubblicato sono obbligatori: `title` testo semplice fino a 255 caratteri, `description` Markdown fino a 10000.
-- Lo storico già esistente si carica una volta con `Platform::recordTransactions()`, fino a 500 per chiamata.
+- Lo storico già esistente si carica una volta con `Platform::recordTransactions()`, fino a 500 per chiamata. Segue le stesse regole della PUT (R10), senza eccezioni.
 - Una riga dell'outbox in stato `failed` è un errore nel codice (contratto violato o conflitto di revisione): leggi `last_error` e correggi, non ritentare alla cieca.
 - Un test di architettura nel progetto rende l'obbligo verificabile:
 

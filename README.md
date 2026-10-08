@@ -120,7 +120,7 @@ final class HandlePlatformEvent implements ShouldQueue
 
 ## Registro delle transazioni
 
-Ogni incarico inviato si registra sul portale quando nasce, e poi a ogni cambio. Lo stesso dato copre i due casi:
+Ogni incarico inviato si registra sul portale quando nasce, e poi a ogni cambio (regola R9). Ogni PUT è la fotografia completa della transazione, quindi il portale accetta la prima registrazione in qualunque stato, purché coerente con le sue date e con le sue attività. Lo stesso dato copre i due casi:
 
 - incarico **affidato** a una controparte che il sistema conosce già: `counterparty` presente, stati `invited`, `accepted`, `declined`, `revoked`, `completed`;
 - incarico **pubblicato** sul portale: `counterparty` e `kind` a `null`, stati `published` e `withdrawn`, con `expires_at` e `open_to` (`person`, `member` o tutti e due).
@@ -201,12 +201,12 @@ final class ExternalAssignmentActivity extends Model implements AffectsPlatformT
 ```
 
 - Un trait usato senza la sua interfaccia lancia una `LogicException`.
-- Ogni salvataggio scrive la versione attuale in una outbox (`php artisan migrate` crea la tabella `platform_transaction_outbox`), nella stessa transazione del database, con una revisione nuova solo se qualcosa è cambiato. Una bozza, con il riferimento a `null`, non ci arriva.
+- Ogni salvataggio scrive la versione attuale in una outbox (`php artisan migrate` crea la tabella `platform_transaction_outbox`), nella stessa transazione del database, con una revisione nuova solo se qualcosa è cambiato. Una bozza, con il riferimento a `null`, non ci arriva. L'outbox tiene solo l'ultima versione: se l'invio di `invited` non è riuscito e intanto l'incarico è stato accettato, al portale arriva come prima registrazione la versione `accepted`, ed è accettata.
 - Un job in coda la manda con `PUT /transactions/{reference}`. Riprova sugli errori di rete e su un sistema non ancora attivo; si ferma, segnando l'errore, su una violazione del contratto o un conflitto.
 - `$model->isRecordedOnPlatform()` dice se il portale ha confermato la versione attuale. La registrazione segue il lavoro, non lo blocca.
 - Ogni cinque minuti il comando schedulato `platform:send-outbox` rimanda le versioni rimaste indietro, per esempio mentre il sistema era in attesa di verifica.
 - Una transazione non si cancella: un invio ritirato si salva come `revoked`, con tutte le attività chiuse.
-- Lo storico si carica con `Platform::recordTransactions()`, fino a 500 per chiamata; `Platform::transactions()` legge il registro del sistema.
+- Lo storico si carica con `Platform::recordTransactions()`, fino a 500 per chiamata, con le stesse regole della PUT (R10); `Platform::transactions()` legge il registro del sistema.
 - Nei test del sistema `PlatformOutbox::assertRecorded($model)` verifica che la versione attuale sia nella outbox, `PlatformOutbox::assertNotRecorded($model)` che una bozza non ci sia.
 
 ## Errori
