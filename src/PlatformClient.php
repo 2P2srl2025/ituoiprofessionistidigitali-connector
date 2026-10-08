@@ -18,6 +18,7 @@ use ITuoiProfessionistiDigitali\Connector\Data\EventTypeData;
 use ITuoiProfessionistiDigitali\Connector\Data\ListedMemberData;
 use ITuoiProfessionistiDigitali\Connector\Data\MemberData;
 use ITuoiProfessionistiDigitali\Connector\Data\MemberPage;
+use ITuoiProfessionistiDigitali\Connector\Data\ProfessionalRecordData;
 use ITuoiProfessionistiDigitali\Connector\Data\RecordedTransactionData;
 use ITuoiProfessionistiDigitali\Connector\Data\RegisteredMemberData;
 use ITuoiProfessionistiDigitali\Connector\Data\SystemData;
@@ -28,6 +29,7 @@ use ITuoiProfessionistiDigitali\Connector\Data\TypologyData;
 use ITuoiProfessionistiDigitali\Connector\Enums\SystemStatus;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformNotConfiguredException;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformRequestException;
+use ITuoiProfessionistiDigitali\Connector\Exceptions\ProfessionalNotAssignedException;
 use ITuoiProfessionistiDigitali\Connector\Validation\PayloadValidator;
 use Throwable;
 
@@ -195,6 +197,27 @@ final readonly class PlatformClient
             TransactionOutcomeData::from(...),
             $this->list($this->request('POST', 'transactions/batch', ['transactions' => $body])),
         );
+    }
+
+    /**
+     * PUT /professionals/{tax_code}: declares the record of a professional when it changes in the system (rule R18).
+     * The platform answers 204 also when it keeps its record, older or locked (rules R19 and R20). Prefer the outbox
+     * of the package (ProfessionalOutbox), which repeats a 404 while transactions to the person wait to be registered.
+     *
+     * @throws ProfessionalNotAssignedException
+     */
+    public function declareProfessional(string $taxCode, ProfessionalRecordData $record): void
+    {
+        ProfessionalRecordData::check($taxCode, $record);
+
+        try
+        {
+            $this->request('PUT', 'professionals/'.rawurlencode($taxCode), $record->toWire());
+        }
+        catch (PlatformRequestException $exception)
+        {
+            throw $exception->status === 404 ? new ProfessionalNotAssignedException($taxCode) : $exception;
+        }
     }
 
     /**

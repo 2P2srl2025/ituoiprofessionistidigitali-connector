@@ -29,6 +29,11 @@ final class Contract
 
     public const int SIGNATURE_TOLERANCE_SECONDS = 300;
 
+    /**
+     * How far in the future the date of a declared record may be (rule R19).
+     */
+    public const int DECLARATION_TOLERANCE_SECONDS = 300;
+
     public const string SIGNATURE_VERSION = 'v1';
 
     public const string HEADER_TIMESTAMP = 'X-Platform-Timestamp';

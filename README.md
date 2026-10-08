@@ -209,6 +209,31 @@ final class ExternalAssignmentActivity extends Model implements AffectsPlatformT
 - Lo storico si carica con `Platform::recordTransactions()`, fino a 500 per chiamata, con le stesse regole della PUT (R10); `Platform::transactions()` legge il registro del sistema.
 - Nei test del sistema `PlatformOutbox::assertRecorded($model)` verifica che la versione attuale sia nella outbox, `PlatformOutbox::assertNotRecorded($model)` che una bozza non ci sia.
 
+## Anagrafica dei professionisti
+
+Il professionista è uno per codice fiscale in tutto il portale. Nasce dalla prima registrazione di un incarico a persona, con l'anagrafica dell'invio. Quando poi l'anagrafica cambia nel sistema, il sistema la dichiara con `PUT /professionals/{tax_code}` (regola R18), datata dal momento del cambio: vince la dichiarazione più recente, non l'ultima arrivata (R19). Le transazioni non cambiano: ognuna conserva l'anagrafica del suo invio (R13).
+
+```php
+use ITuoiProfessionistiDigitali\Connector\Data\ProfessionalRecordData;
+use ITuoiProfessionistiDigitali\Connector\Outbox\ProfessionalOutbox;
+
+resolve(ProfessionalOutbox::class)->declare($collaboratore->codice_fiscale, new ProfessionalRecordData(
+    first_name: 'Mario',
+    last_name: 'Rossi',
+    declared_at: CarbonImmutable::parse($collaboratore->updated_at),
+    vat_number: '01234567897',
+    municipality: 'Lecce',
+    province: 'LE',
+));
+```
+
+- L'anagrafica è sempre completa: un campo facoltativo a `null` toglie il dato sul portale. L'email si manda solo se lo studio ha la base per comunicarla. `declared_at` non può essere oltre 5 minuti nel futuro.
+- L'outbox delle dichiarazioni (tabella `platform_professional_outbox`) tiene l'ultima per codice fiscale: ignora una dichiarazione più vecchia e una con la stessa anagrafica. La manda in coda dopo il commit.
+- Il portale risponde 404 finché non ha una transazione a persona del sistema con quel codice fiscale. Se l'outbox delle transazioni ne ha ancora di mai confermate, la dichiarazione aspetta e riparte da sola quando una è confermata; altrimenti si chiude come `discarded`, con un log, e non è un errore (per esempio un codice fiscale corretto dopo l'invio).
+- Un 204 chiude la dichiarazione anche quando il portale tiene la sua anagrafica, più recente o bloccata (R20): il sistema non lo sa e non deve saperlo.
+- `Platform::declareProfessional($codiceFiscale, $anagrafica)` fa la sola chiamata, senza outbox: un 404 diventa `ProfessionalNotAssignedException`.
+- `platform:send-outbox` rimanda anche le dichiarazioni in attesa. Nei test `PlatformOutbox::assertDeclared($codiceFiscale, $anagrafica)` verifica che sia l'ultima dichiarazione nella outbox.
+
 ## Errori
 
 Ogni rifiuto è una `PlatformRequestException`, con `->status`, `->errors` (chiavi puntate come `payload.challenge`), `->reason` per i 403 (`SystemStatus`) e `->existingEvent` per i 409. Senza credenziali il client lancia `PlatformNotConfiguredException`.

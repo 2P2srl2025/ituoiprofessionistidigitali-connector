@@ -12,11 +12,13 @@ use ITuoiProfessionistiDigitali\Connector\Data\TransactionData;
 use ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformRequestException;
 use ITuoiProfessionistiDigitali\Connector\Models\PlatformTransactionOutbox;
+use ITuoiProfessionistiDigitali\Connector\Outbox\ProfessionalOutbox;
 use ITuoiProfessionistiDigitali\Connector\PlatformClient;
 
 /**
  * Sends the last version of a transaction to the register. Network errors and a system not yet active
- * are retried; a contract violation or a conflict stop it, with the error kept in the outbox.
+ * are retried; a contract violation or a conflict stop it, with the error kept in the outbox. Once confirmed,
+ * it sends again the declaration of the record of the person waiting for it (rule R18).
  */
 final class SendPlatformTransaction implements ShouldQueue
 {
@@ -34,7 +36,7 @@ final class SendPlatformTransaction implements ShouldQueue
         return [60, 300, 900, 1800, 3600];
     }
 
-    public function handle(PlatformClient $client, ConnectorConfig $config): void
+    public function handle(PlatformClient $client, ConnectorConfig $config, ProfessionalOutbox $professionals): void
     {
         $row = PlatformTransactionOutbox::query()->where('reference', $this->reference)->first();
 
@@ -81,5 +83,13 @@ final class SendPlatformTransaction implements ShouldQueue
             'last_error' => null,
         ]);
         PlatformTransactionOutbox::query()->whereKey($row->id)->where('revision', $revision)->update(['status' => OutboxStatus::Sent]);
+
+        // A declaration of the record of the person may wait for this registration (rule R18)
+        $counterparty = $row->payload['counterparty'] ?? null;
+
+        if (is_array($counterparty) && is_string($counterparty['tax_code'] ?? null))
+        {
+            $professionals->resume($counterparty['tax_code']);
+        }
     }
 }

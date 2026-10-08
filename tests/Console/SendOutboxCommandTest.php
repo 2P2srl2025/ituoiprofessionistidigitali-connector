@@ -7,7 +7,9 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use ITuoiProfessionistiDigitali\Connector\ConnectorConfig;
 use ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus;
+use ITuoiProfessionistiDigitali\Connector\Jobs\SendPlatformProfessional;
 use ITuoiProfessionistiDigitali\Connector\Jobs\SendPlatformTransaction;
+use ITuoiProfessionistiDigitali\Connector\Models\PlatformProfessionalOutbox;
 use ITuoiProfessionistiDigitali\Connector\Models\PlatformTransactionOutbox;
 
 uses(RefreshDatabase::class);
@@ -35,6 +37,19 @@ it('queues again only the versions not yet confirmed', function (): void {
 
     Queue::assertPushed(SendPlatformTransaction::class, 2);
     Queue::assertPushed(SendPlatformTransaction::class, fn (SendPlatformTransaction $job): bool => $job->reference === 'behind');
+});
+
+it('R18: queues again the declarations still pending', function (): void {
+    Queue::fake();
+    foreach (['RSSMRA80A01H501U' => OutboxStatus::Pending, 'BNCLRA85T41F205X' => OutboxStatus::Discarded, 'VRDGPP70A01F205Y' => OutboxStatus::Sent] as $taxCode => $status)
+    {
+        PlatformProfessionalOutbox::query()->create(['tax_code' => $taxCode, 'revision' => 1, 'payload' => professional(), 'status' => $status]);
+    }
+
+    $this->artisan('platform:send-outbox')->expectsOutputToContain('Anagrafiche rimesse in coda: 1.')->assertSuccessful();
+
+    Queue::assertPushed(SendPlatformProfessional::class, fn (SendPlatformProfessional $job): bool => $job->taxCode === 'RSSMRA80A01H501U');
+    Queue::assertPushed(SendPlatformProfessional::class, 1);
 });
 
 it('does nothing while the system is not connected', function (): void {

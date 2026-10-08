@@ -72,6 +72,14 @@ arch('assignments reach the register of the platform')
 
 - Nei test di ogni action che tocca un invio, le sue righe o l'incarico, verifica la comunicazione con `ITuoiProfessionistiDigitali\Connector\Testing\PlatformOutbox::assertRecorded($proposta)`, e con `assertNotRecorded()` che una bozza non parta.
 
+## Anagrafica dei professionisti
+
+- Quando l'anagrafica di un collaboratore persona cambia nel sistema, dichiarala con `resolve(ProfessionalOutbox::class)->declare($codiceFiscale, new ProfessionalRecordData(...))`, nella stessa transazione del database del cambio. `declared_at` è il momento del cambio, non quello dell'invio.
+- L'anagrafica è sempre completa: un campo facoltativo a `null` toglie il dato. Non mandare solo i campi cambiati.
+- Non chiamare `Platform::declareProfessional()` a mano: l'outbox ripete il 404 finché ci sono transazioni alla persona non ancora registrate, e senza la ripetizione il cambio va perso (R18).
+- Una dichiarazione `discarded` non è un errore: il sistema non ha incaricato quella persona, o il codice fiscale è stato corretto. Il professionista nasce dal prossimo incarico.
+- Le transazioni non si toccano per un cambio dell'anagrafica: ognuna porta quella del suo invio, identica a ogni revisione (R13).
+
 ## Errori
 
 - `422`: il contratto è violato. Non ritentare: leggi `->errors`, le cui chiavi sono i campi in notazione puntata.

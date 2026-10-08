@@ -149,3 +149,22 @@ function sentAssignment(): ITuoiProfessionistiDigitali\Connector\Tests\Fixtures\
 
     return $assignment;
 }
+
+/**
+ * The record of a professional as a system declares it with PUT /professionals/{tax_code}.
+ *
+ * @return array<string, mixed>
+ */
+function professional(array $overrides = []): array
+{
+    return [
+        'first_name' => 'Mario',
+        'last_name' => 'Rossi',
+        'email' => null,
+        'vat_number' => '01234567897',
+        'municipality' => 'Lecce',
+        'province' => 'LE',
+        'declared_at' => '2026-10-08T10:15:00+02:00',
+        ...$overrides,
+    ];
+}

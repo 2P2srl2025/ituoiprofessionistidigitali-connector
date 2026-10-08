@@ -2,15 +2,19 @@
 
 declare(strict_types=1);
 
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use ITuoiProfessionistiDigitali\Connector\ConnectorConfig;
+use ITuoiProfessionistiDigitali\Connector\Data\ProfessionalRecordData;
 use ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformRequestException;
+use ITuoiProfessionistiDigitali\Connector\Jobs\SendPlatformProfessional;
 use ITuoiProfessionistiDigitali\Connector\Jobs\SendPlatformTransaction;
 use ITuoiProfessionistiDigitali\Connector\Models\PlatformTransactionOutbox;
+use ITuoiProfessionistiDigitali\Connector\Outbox\ProfessionalOutbox;
 
 uses(RefreshDatabase::class);
 
@@ -26,6 +30,7 @@ function send(string $reference): void
     resolve(SendPlatformTransaction::class, ['reference' => $reference])->handle(
         resolve(ITuoiProfessionistiDigitali\Connector\PlatformClient::class),
         resolve(ConnectorConfig::class),
+        resolve(ProfessionalOutbox::class),
     );
 }
 
@@ -50,6 +55,16 @@ it('R7: sends the last version with its revision and marks it confirmed', functi
         ->sent_at->not->toBeNull()
         ->and($this->assignment->isRecordedOnPlatform())->toBeTrue();
     Http::assertSent(fn (Request $request): bool => $request->method() === 'PUT' && $request->data()['revision'] === 1);
+});
+
+it('R18: queues again the declaration of the person waiting for the confirmation', function (): void {
+    platformAnsweringTransactions(201, ['data' => recordedTransaction()]);
+    $this->travelTo(CarbonImmutable::parse('2026-10-08T10:20:00+02:00'));
+    resolve(ProfessionalOutbox::class)->declare('RSSMRA80A01H501U', ProfessionalRecordData::from(professional()));
+
+    send($this->assignment->uuid);
+
+    Queue::assertPushed(SendPlatformProfessional::class, 2);
 });
 
 it('R7: leaves pending a newer revision that arrived while sending', function (): void {
