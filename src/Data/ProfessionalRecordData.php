@@ -29,7 +29,7 @@ final class ProfessionalRecordData extends Data
         #[WithCast(DateTimeInterfaceCast::class, format: Contract::DATE_INPUT_FORMATS)]
         #[WithTransformer(DateTimeInterfaceTransformer::class, format: Contract::DATE_FORMAT)]
         public CarbonImmutable $declared_at,
-        public ?string $email = null,
+        public string $email,
         public ?string $vat_number = null,
         public ?string $municipality = null,
         public ?string $province = null,
@@ -49,7 +49,7 @@ final class ProfessionalRecordData extends Data
         return [
             'first_name' => ['required', ...$details['first_name']],
             'last_name' => ['required', ...$details['last_name']],
-            'email' => $optional('email', ...$details['email']),
+            'email' => ['required', ...$details['email']],
             'vat_number' => $optional('vat_number', ...$details['vat_number']),
             'municipality' => $optional('municipality', ...$details['municipality']),
             'province' => $optional('province', ...$details['province']),
@@ -92,7 +92,7 @@ final class ProfessionalRecordData extends Data
     /**
      * The body of PUT /professionals/{tax_code}, with every key.
      *
-     * @return array{first_name: string, last_name: string, email: string|null, vat_number: string|null, municipality: string|null, province: string|null, declared_at: string}
+     * @return array{first_name: string, last_name: string, email: string, vat_number: string|null, municipality: string|null, province: string|null, declared_at: string}
      */
     public function toWire(): array
     {

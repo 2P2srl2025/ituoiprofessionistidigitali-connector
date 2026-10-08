@@ -164,7 +164,7 @@ function professional(array $overrides = []): array
     return [
         'first_name' => 'Mario',
         'last_name' => 'Rossi',
-        'email' => null,
+        'email' => 'mario.rossi@example.com',
         'vat_number' => '01234567897',
         'municipality' => 'Lecce',
         'province' => 'LE',

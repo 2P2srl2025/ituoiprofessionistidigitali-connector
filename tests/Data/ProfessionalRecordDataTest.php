@@ -15,12 +15,13 @@ it('R18: puts every key on the wire, with the date in RFC 3339', function (): vo
         first_name: 'Mario',
         last_name: 'Rossi',
         declared_at: CarbonImmutable::parse('2026-10-08T08:15:00Z'),
+        email: 'mario.rossi@example.com',
     );
 
     expect($record->toWire())->toBe([
         'first_name' => 'Mario',
         'last_name' => 'Rossi',
-        'email' => null,
+        'email' => 'mario.rossi@example.com',
         'vat_number' => null,
         'municipality' => null,
         'province' => null,
@@ -58,7 +59,9 @@ it('refuses what the platform would refuse', function (array $body, string $fiel
     'without first name' => [professional(['first_name' => null]), 'first_name'],
     'empty last name' => [professional(['last_name' => '']), 'last_name'],
     'last name too long' => [professional(['last_name' => str_repeat('a', 256)]), 'last_name'],
+    'without email' => [professional(['email' => null]), 'email'],
     'wrong email' => [professional(['email' => 'mario']), 'email'],
+    'email too long' => [professional(['email' => str_repeat('a', 244).'@example.com']), 'email'],
     'empty email' => [professional(['email' => '']), 'email'],
     'wrong vat number' => [professional(['vat_number' => '01234567890']), 'vat_number'],
     'empty municipality' => [professional(['municipality' => '']), 'municipality'],

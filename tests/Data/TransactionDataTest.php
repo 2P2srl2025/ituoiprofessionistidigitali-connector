@@ -125,10 +125,10 @@ it('builds the same body from code, with the typed DTOs', function (): void {
 });
 
 it('R3: sends the optional details of a person as null when the system has none', function (): void {
-    expect(CounterpartyData::person('RSSMRA80A01H501U', 'Mario', 'Rossi')->toWire())->toBe([
+    expect(CounterpartyData::person('RSSMRA80A01H501U', 'Mario', 'Rossi', 'mario.rossi@example.com')->toWire())->toBe([
         'type' => 'person', 'member_id' => null, 'tax_code' => 'RSSMRA80A01H501U', 'first_name' => 'Mario', 'last_name' => 'Rossi',
-        'email' => null, 'vat_number' => null, 'municipality' => null, 'province' => null,
-    ])->and(TransactionData::validateAndCreate(transaction(['counterparty' => person(['email' => null, 'vat_number' => '01234567897', 'municipality' => null, 'province' => null])]))->counterparty?->vat_number)
+        'email' => 'mario.rossi@example.com', 'vat_number' => null, 'municipality' => null, 'province' => null,
+    ])->and(TransactionData::validateAndCreate(transaction(['counterparty' => person(['vat_number' => '01234567897', 'municipality' => null, 'province' => null])]))->counterparty?->vat_number)
         ->toBe('01234567897');
 });
 
@@ -200,7 +200,10 @@ it('refuses what the register would refuse', function (array $body, string $fiel
     'R3 person without first name' => [transaction(['counterparty' => person(['first_name' => null])]), 'counterparty.first_name'],
     'R3 person without last name' => [transaction(['counterparty' => person(['last_name' => null])]), 'counterparty.last_name'],
     'R3 last name too long' => [transaction(['counterparty' => person(['last_name' => str_repeat('a', 256)])]), 'counterparty.last_name'],
+    'R3 person without email' => [transaction(['counterparty' => person(['email' => null])]), 'counterparty.email'],
     'R3 wrong email' => [transaction(['counterparty' => person(['email' => 'mario'])]), 'counterparty.email'],
+    'R3 email too long' => [transaction(['counterparty' => person(['email' => str_repeat('a', 244).'@example.com'])]), 'counterparty.email'],
+    'R3 member with an email' => [transaction(['audience' => 'member', 'counterparty' => firm(['email' => 'mario.rossi@example.com'])]), 'counterparty.email'],
     'R3 wrong vat number' => [transaction(['counterparty' => person(['vat_number' => '01234567890'])]), 'counterparty.vat_number'],
     'R3 empty municipality' => [transaction(['counterparty' => person(['municipality' => ''])]), 'counterparty.municipality'],
     'R3 province in lower case' => [transaction(['counterparty' => person(['province' => 'ba'])]), 'counterparty.province'],
