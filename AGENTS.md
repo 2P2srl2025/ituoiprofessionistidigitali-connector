@@ -20,7 +20,7 @@ Regole per chi scrive codice che usa `ituoiprofessionistidigitali/connector` in 
 - Salva l'`id` che il portale restituisce per ogni aderente: è il `sender` dei tuoi eventi. Gli id degli altri sistemi arrivano da `Platform::searchMembers()` o dagli eventi ricevuti.
 - `listed: false` tiene l'aderente fuori dalla ricerca, ma non dagli scambi.
 - Partita IVA e codice fiscale vanno in maiuscolo, senza spazi: il pacchetto e il portale verificano anche il carattere di controllo.
-- Ogni aderente ha `email`, obbligatoria: è l'email coworking della struttura, l'indirizzo per le notifiche della sua area (M14). È unica fra gli aderenti di tutto il portale (M15): una già usata da un aderente di un altro sistema è un 422 su `members.N.email`, da risolvere con lo studio, non da ritentare. Non fa da login: per riconoscere un aderente usa `external_ref` o il suo `id`. Gli aderenti degli altri sistemi non la mostrano mai.
+- Ogni aderente ha `email`, obbligatoria: è l'email coworking della struttura, l'indirizzo per le notifiche della sua area (M14). È unica fra gli aderenti di tutto il portale (M15): una già usata da un aderente di un altro sistema è un 422 su `members.N.email`, da risolvere con lo studio, non da ritentare. Sul portale è anche l'email con cui lo studio entra nella sua area. Nelle chiamate del pacchetto, invece, per riconoscere un aderente usa `external_ref` o il suo `id`, mai l'email. Gli aderenti degli altri sistemi non la mostrano mai.
 
 ## Accesso all'area dello studio
 
