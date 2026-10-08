@@ -36,8 +36,7 @@ function send(string $reference): void
 
 function platformAnsweringTransactions(int $status, array $body = []): void
 {
-    Http::fake([
-        'platform.test/oauth/token' => Http::response(['access_token' => 'token', 'expires_in' => 3600]),
+    withToken([
         'platform.test/api/v1/transactions/*' => Http::response($body, $status),
     ]);
 }
@@ -80,8 +79,7 @@ it('R18: leaves the declarations alone after a later revision: only a first regi
 });
 
 it('R7: leaves pending a newer revision that arrived while sending', function (): void {
-    Http::fake([
-        'platform.test/oauth/token' => Http::response(['access_token' => 'token', 'expires_in' => 3600]),
+    withToken([
         'platform.test/api/v1/transactions/*' => function () {
             PlatformTransactionOutbox::query()->update(['revision' => 2]);
 

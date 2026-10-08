@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Http;
 use ITuoiProfessionistiDigitali\Connector\Contract;
 use ITuoiProfessionistiDigitali\Connector\Tests\TestCase;
 
@@ -171,4 +172,22 @@ function professional(array $overrides = []): array
         'declared_at' => '2026-10-08T10:15:00+02:00',
         ...$overrides,
     ];
+}
+
+/**
+ * Fakes these routes of the platform, after the token of the client.
+ */
+function withToken(array $routes): void
+{
+    Http::fake(['platform.test/oauth/token' => Http::response(['access_token' => 'token', 'expires_in' => 3600]), ...$routes]);
+}
+
+/**
+ * The platform answering PUT /professionals/{tax_code} with this status, after the token.
+ */
+function platformAnsweringProfessionals(int $status, array $body = []): void
+{
+    withToken([
+        'platform.test/api/v1/professionals/*' => Http::response($status === 204 ? null : $body, $status),
+    ]);
 }

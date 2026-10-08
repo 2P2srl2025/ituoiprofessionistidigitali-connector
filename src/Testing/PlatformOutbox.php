@@ -36,7 +36,7 @@ final class PlatformOutbox
     public static function assertDeclared(string $taxCode, ProfessionalRecordData $record): void
     {
         $row = PlatformProfessionalOutbox::query()->where('tax_code', $taxCode)->first();
-        Assert::assertInstanceOf(PlatformProfessionalOutbox::class, $row, 'La dichiarazione dell\'anagrafica non è nella outbox.');
+        Assert::assertInstanceOf(PlatformProfessionalOutbox::class, $row, "La dichiarazione dell'anagrafica non è nella outbox.");
         Assert::assertSame($record->toWire(), $row->payload, 'La outbox non ha questa anagrafica come ultima dichiarazione.');
     }
 

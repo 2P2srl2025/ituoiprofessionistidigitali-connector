@@ -16,14 +16,6 @@ beforeEach(function (): void {
     $this->travelTo(CarbonImmutable::parse('2026-10-08T10:20:00+02:00'));
 });
 
-function platformAnsweringProfessionals(int $status, array $body = []): void
-{
-    Http::fake([
-        'platform.test/oauth/token' => Http::response(['access_token' => 'token', 'expires_in' => 3600]),
-        'platform.test/api/v1/professionals/*' => Http::response($status === 204 ? null : $body, $status),
-    ]);
-}
-
 it('R18: declares the complete record under the tax code', function (): void {
     platformAnsweringProfessionals(204);
 

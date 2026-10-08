@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Arr;
 use Illuminate\Validation\ValidationException;
 use ITuoiProfessionistiDigitali\Connector\Data\ActivityDescriptionData;
 use ITuoiProfessionistiDigitali\Connector\Data\CompensationData;
@@ -33,19 +34,6 @@ function person(array $overrides = []): array
 function firm(array $overrides = []): array
 {
     return ['type' => 'member', 'member_id' => '0199b6f1-5c3a-7e10-8d2b-4a6f9e1c3b55', 'tax_code' => null, 'first_name' => null, 'last_name' => null, 'email' => null, 'vat_number' => null, 'municipality' => null, 'province' => null, ...$overrides];
-}
-
-/**
- * The transaction without one of its keys, which the platform wants always present.
- *
- * @param  array<string, mixed>  $transaction
- * @return array<string, mixed>
- */
-function without(array $transaction, string $key): array
-{
-    unset($transaction[$key]);
-
-    return $transaction;
 }
 
 /**
@@ -194,8 +182,8 @@ it('refuses what the register would refuse', function (array $body, string $fiel
     'R3 person with a member id' => [transaction(['counterparty' => person(['member_id' => '0199b6f0-4e2a-7b31-9f6c-2d8a1e5b7c43'])]), 'counterparty.member_id'],
     'R3 direct to anyone' => [transaction(['audience' => 'any']), 'audience'],
     'R3 audience other than the counterparty' => [transaction(['audience' => 'member']), 'counterparty.type'],
-    'R3 a key of the person missing' => [transaction(['counterparty' => without(person(), 'email')]), 'counterparty.email'],
-    'R3 the member id missing' => [transaction(['counterparty' => without(person(), 'member_id')]), 'counterparty.member_id'],
+    'R3 a key of the person missing' => [transaction(['counterparty' => Arr::except(person(), 'email')]), 'counterparty.email'],
+    'R3 the member id missing' => [transaction(['counterparty' => Arr::except(person(), 'member_id')]), 'counterparty.member_id'],
     'R3 wrong tax code' => [transaction(['counterparty' => person(['tax_code' => 'RSSMRA80A01H501A'])]), 'counterparty.tax_code'],
     'R3 person without first name' => [transaction(['counterparty' => person(['first_name' => null])]), 'counterparty.first_name'],
     'R3 person without last name' => [transaction(['counterparty' => person(['last_name' => null])]), 'counterparty.last_name'],
@@ -240,12 +228,12 @@ it('refuses what the register would refuse', function (array $body, string $fiel
     'R6 published without title' => [[...transactionIn('published'), 'title' => null], 'title'],
     'R6 sent without title' => [transaction(['title' => null]), 'title'],
     'R6 sent without description' => [transaction(['description' => null]), 'description'],
-    'without the key of the counterparty' => [without(transaction(), 'counterparty'), 'counterparty'],
-    'without the key of the expiry' => [without(transaction(), 'expires_at'), 'expires_at'],
-    'without the key of the answer' => [without(transaction(), 'responded_at'), 'responded_at'],
-    'without the key of the closing' => [without(transaction(), 'closed_at'), 'closed_at'],
-    'an activity without the key of the minutes worked' => [transaction(['activities' => [without(activity(), 'minutes_worked')]]), 'activities.0.minutes_worked'],
-    'an activity without the key of the closing' => [transaction(['activities' => [without(activity(), 'closed_at')]]), 'activities.0.closed_at'],
+    'without the key of the counterparty' => [Arr::except(transaction(), 'counterparty'), 'counterparty'],
+    'without the key of the expiry' => [Arr::except(transaction(), 'expires_at'), 'expires_at'],
+    'without the key of the answer' => [Arr::except(transaction(), 'responded_at'), 'responded_at'],
+    'without the key of the closing' => [Arr::except(transaction(), 'closed_at'), 'closed_at'],
+    'an activity without the key of the minutes worked' => [transaction(['activities' => [Arr::except(activity(), 'minutes_worked')]]), 'activities.0.minutes_worked'],
+    'an activity without the key of the closing' => [transaction(['activities' => [Arr::except(activity(), 'closed_at')]]), 'activities.0.closed_at'],
     'a compensation without the key of the fixed amount' => [transaction(['activities' => [activity(['compensation' => ['form' => 'hourly', 'hourly_rate_cents' => 4500]])]]), 'activities.0.compensation.fixed_amount_cents'],
     'a description without the key of the deadline' => [transaction(['activities' => [activity(['description' => ['process' => null, 'activity' => null]])]]), 'activities.0.description.deadline'],
     'R6 published without description' => [[...transactionIn('published'), 'description' => null], 'description'],

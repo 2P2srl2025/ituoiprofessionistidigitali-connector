@@ -68,13 +68,14 @@ final class CounterpartyData extends Data
     {
         $counterparty = is_array($context->payload) ? $context->payload : [];
         $transaction = is_array($context->fullPayload) ? $context->fullPayload : [];
+        $audience = Audience::tryFrom(TransactionActivityData::value($transaction['audience'] ?? null));
         $isPerson = TransactionActivityData::value($counterparty['type'] ?? null) === CounterpartyType::Person->value;
         // An optional field of a person given empty is an error, not a missing value
         $person = static fn (string $field, mixed ...$rules): array => self::personRules($counterparty, $isPerson, $field, $rules);
         $details = ProfessionalRecordData::detailRules();
 
         return [
-            'type' => ['required', Rule::enum(CounterpartyType::class), self::followsAudience($transaction['audience'] ?? null)],
+            'type' => ['required', Rule::enum(CounterpartyType::class), self::followsAudience($audience)],
             'member_id' => ['present', Rule::requiredIf(!$isPerson), Rule::prohibitedIf($isPerson), 'nullable', 'uuid'],
             'tax_code' => [Rule::requiredIf($isPerson), ...$person('tax_code', 'string', new ItalianTaxCode(personOnly: true))],
             'first_name' => [Rule::requiredIf($isPerson), ...$person('first_name', ...$details['first_name'])],
@@ -121,10 +122,8 @@ final class CounterpartyData extends Data
     /**
      * R3: the counterparty is of a type the audience admits; anyone admits both.
      */
-    private static function followsAudience(mixed $audience): Closure
+    private static function followsAudience(?Audience $audience): Closure
     {
-        $audience = Audience::tryFrom(TransactionActivityData::value($audience));
-
         return static function (string $attribute, mixed $value, Closure $fail) use ($audience): void {
             $type = CounterpartyType::tryFrom(TransactionActivityData::value($value));
 

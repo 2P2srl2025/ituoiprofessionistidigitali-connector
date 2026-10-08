@@ -40,16 +40,8 @@ function declareOnPlatform(string $taxCode = 'RSSMRA80A01H501U'): void
     );
 }
 
-function platformAnsweringDeclarations(int $status, array $body = []): void
-{
-    Http::fake([
-        'platform.test/oauth/token' => Http::response(['access_token' => 'token', 'expires_in' => 3600]),
-        'platform.test/api/v1/professionals/*' => Http::response($status === 204 ? null : $body, $status),
-    ]);
-}
-
 it('R18: sends the last declaration and marks it confirmed', function (): void {
-    platformAnsweringDeclarations(204);
+    platformAnsweringProfessionals(204);
 
     declareOnPlatform();
 
@@ -63,8 +55,7 @@ it('R18: sends the last declaration and marks it confirmed', function (): void {
 });
 
 it('R19: leaves pending a newer declaration that arrived while sending', function (): void {
-    Http::fake([
-        'platform.test/oauth/token' => Http::response(['access_token' => 'token', 'expires_in' => 3600]),
+    withToken([
         'platform.test/api/v1/professionals/*' => function () {
             PlatformProfessionalOutbox::query()->update(['revision' => 2]);
 
@@ -79,7 +70,7 @@ it('R19: leaves pending a newer declaration that arrived while sending', functio
 
 it('R18: waits on a 404 while the outbox has transactions to the person never confirmed', function (): void {
     PlatformTransactionOutbox::query()->update(['sent_revision' => null, 'status' => OutboxStatus::Pending]);
-    platformAnsweringDeclarations(404, ['message' => 'Professionista non trovato.']);
+    platformAnsweringProfessionals(404, ['message' => 'Professionista non trovato.']);
 
     declareOnPlatform();
 
@@ -91,7 +82,7 @@ it('R18: waits on a 404 while the outbox has transactions to the person never co
 
 it('R18: discards on a 404 a declaration with no transactions to wait for, with a log', function (): void {
     Log::spy();
-    platformAnsweringDeclarations(404, ['message' => 'Professionista non trovato.']);
+    platformAnsweringProfessionals(404, ['message' => 'Professionista non trovato.']);
 
     declareOnPlatform();
 
@@ -102,8 +93,7 @@ it('R18: discards on a 404 a declaration with no transactions to wait for, with 
 it('R18: repeats a 404 until the transactions to the person are registered, then the record is updated', function (): void {
     $assignment = sentAssignment();
     $registered = false;
-    Http::fake([
-        'platform.test/oauth/token' => Http::response(['access_token' => 'token', 'expires_in' => 3600]),
+    withToken([
         'platform.test/api/v1/transactions/*' => function () use (&$registered) {
             $registered = true;
 
@@ -131,7 +121,7 @@ it('R18: repeats a 404 until the transactions to the person are registered, then
 });
 
 it('stops on a contract violation, keeping the error', function (): void {
-    platformAnsweringDeclarations(422, ['message' => 'Rifiutata.', 'errors' => ['province' => ['Non è una provincia.']]]);
+    platformAnsweringProfessionals(422, ['message' => 'Rifiutata.', 'errors' => ['province' => ['Non è una provincia.']]]);
 
     declareOnPlatform();
 
@@ -142,7 +132,7 @@ it('stops on a contract violation, keeping the error', function (): void {
 });
 
 it('retries a server error or a system not yet active', function (int $status): void {
-    platformAnsweringDeclarations($status, ['message' => 'Non ora.']);
+    platformAnsweringProfessionals($status, ['message' => 'Non ora.']);
 
     expect(fn () => declareOnPlatform())->toThrow(PlatformRequestException::class);
     expect($this->row->refresh())->status->toBe(OutboxStatus::Pending)->last_error->toContain('Non ora.');

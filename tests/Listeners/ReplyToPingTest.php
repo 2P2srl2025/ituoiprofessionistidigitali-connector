@@ -20,8 +20,7 @@ beforeEach(function (): void {
  */
 function platformAnswering(int $status, array $body = []): void
 {
-    Http::fake([
-        'platform.test/oauth/token' => Http::response(['access_token' => 'token', 'expires_in' => 3600]),
+    withToken([
         'platform.test/api/v1/event-types' => Http::response(['data' => catalogue()]),
         'platform.test/api/v1/events' => Http::response($body, $status),
     ]);

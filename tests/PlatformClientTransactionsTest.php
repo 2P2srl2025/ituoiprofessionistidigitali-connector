@@ -23,11 +23,6 @@ beforeEach(function (): void {
     Http::preventStrayRequests();
 });
 
-function withToken(array $routes): void
-{
-    Http::fake(['platform.test/oauth/token' => Http::response(['access_token' => 'token', 'expires_in' => 3600]), ...$routes]);
-}
-
 it('R7: registers a transaction with its revision under its reference', function (): void {
     withToken(['platform.test/api/v1/transactions/*' => Http::response(['data' => recordedTransaction()], 201)]);
 

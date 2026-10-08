@@ -91,7 +91,7 @@ final readonly class TransactionOutbox
     }
 
     /**
-     * The current version of the model as the outbox keeps it: the body of PUT without the revision.
+     * The current version of the model as the outbox keeps it.
      *
      * @return array<string, mixed>
      */
@@ -101,6 +101,8 @@ final readonly class TransactionOutbox
     }
 
     /**
+     * The transaction as the outbox keeps it: the body of PUT without the revision, in the form its JSON column reads back.
+     *
      * @return array<string, mixed>
      */
     public function payloadOf(TransactionData $transaction): array

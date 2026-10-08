@@ -115,8 +115,7 @@ it('refuses the traits on a model without their interface', function (string $tr
 
 it('R10 and R18: keeps the history registered in batch as confirmed, so the outbox knows every person assigned', function (): void {
     Http::preventStrayRequests();
-    Http::fake([
-        'platform.test/oauth/token' => Http::response(['access_token' => 'token', 'expires_in' => 3600]),
+    withToken([
         'platform.test/api/v1/transactions/batch' => Http::response(['data' => array_map(
             static fn (string $reference, string $result): array => ['reference' => $reference, 'result' => $result, 'transaction' => $result === 'invalid' ? null : recordedTransaction(['reference' => $reference]), 'errors' => null],
             ['created', 'updated', 'unchanged', 'stale', 'invalid', 'kept'],

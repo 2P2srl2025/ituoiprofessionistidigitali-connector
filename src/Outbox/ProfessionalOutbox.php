@@ -46,7 +46,7 @@ final readonly class ProfessionalOutbox
             return null;
         }
 
-        if ($row->exists && ($this->isNewer($row, $record) || Arr::except($row->payload, 'declared_at') === Arr::except($payload, 'declared_at')))
+        if ($row->exists && ($this->isNewer($row, $record) || $this->isSameRecord($row, $payload)))
         {
             return $row;
         }
@@ -97,5 +97,15 @@ final readonly class ProfessionalOutbox
         $kept = $row->payload['declared_at'] ?? null;
 
         return is_string($kept) && CarbonImmutable::parse($kept)->greaterThan($record->declared_at);
+    }
+
+    /**
+     * Whether the outbox already keeps this record, whatever its date.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function isSameRecord(PlatformProfessionalOutbox $row, array $payload): bool
+    {
+        return Arr::except($row->payload, 'declared_at') === Arr::except($payload, 'declared_at');
     }
 }

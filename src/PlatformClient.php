@@ -204,10 +204,17 @@ final readonly class PlatformClient
         );
 
         $sent = array_column($transactions, null, 'reference');
-        $this->outbox->confirmed(array_values(array_filter(array_map(
-            static fn (TransactionOutcomeData $outcome): ?array => is_string($outcome->reference) && $outcome->result->isRecorded() ? $sent[$outcome->reference] ?? null : null,
-            $outcomes,
-        ))));
+        $recorded = [];
+
+        foreach ($outcomes as $outcome)
+        {
+            if (is_string($outcome->reference) && $outcome->result->isRecorded() && isset($sent[$outcome->reference]))
+            {
+                $recorded[] = $sent[$outcome->reference];
+            }
+        }
+
+        $this->outbox->confirmed($recorded);
 
         return $outcomes;
     }

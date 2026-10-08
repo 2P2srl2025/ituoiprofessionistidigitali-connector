@@ -66,7 +66,7 @@ it('R19: ignores an older declaration, and a newer one with the same record', fu
 ]);
 
 it('R18: declares nothing for a person the system never assigned, in any status of its transactions', function (): void {
-    $row = resolve(ProfessionalOutbox::class)->declare('BNCLRA85T41F205Y', ProfessionalRecordData::from(professional()));
+    $row = $this->outbox->declare('BNCLRA85T41F205Y', ProfessionalRecordData::from(professional()));
 
     expect($row)->toBeNull()
         ->and(PlatformProfessionalOutbox::query()->count())->toBe(0);
@@ -79,7 +79,7 @@ it('R18: declares nothing for a person the system never assigned, in any status 
 });
 
 it('refuses a declaration the platform would refuse, before keeping it', function (): void {
-    expect(fn () => resolve(ProfessionalOutbox::class)->declare('01234567897', ProfessionalRecordData::from(professional())))
+    expect(fn () => $this->outbox->declare('01234567897', ProfessionalRecordData::from(professional())))
         ->toThrow(ValidationException::class);
 
     expect(PlatformProfessionalOutbox::query()->count())->toBe(0);
