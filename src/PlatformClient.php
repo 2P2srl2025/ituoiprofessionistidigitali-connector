@@ -97,8 +97,9 @@ final readonly class PlatformClient
 
     /**
      * PUT /members: the complete list of the system's members. Those left out become inactive.
-     * Two members of the request cannot share an email. The platform also refuses the email of a member of another
-     * system, which the package cannot know (rule M15).
+     * Two members of the request cannot share an email, whatever its case (rules M15, T6): MemberData lowercases it,
+     * and the check ignores case also for an email changed after construction. The platform also refuses the email of
+     * a member of another system, which the package cannot know.
      *
      * @param  list<MemberData>  $members
      * @return list<RegisteredMemberData>
@@ -121,7 +122,7 @@ final readonly class PlatformClient
             MemberData::validate($member);
         }
 
-        validator(['members' => $payload], ['members.*.email' => ['distinct']])->validate();
+        validator(['members' => $payload], ['members.*.email' => ['distinct:ignore_case']])->validate();
 
         return array_map(
             RegisteredMemberData::from(...),

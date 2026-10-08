@@ -17,6 +17,7 @@ use Spatie\LaravelData\Support\Validation\ValidationContext;
  * The rules repeat those of the platform (M3, M4, M14), so a mistake shows up while developing instead of as a 422.
  * The email is the coworking email of the firm, the address for the notifications of its area: required, and unique
  * among the members of the whole platform (M15): PlatformClient::syncMembers() checks it only within one request.
+ * Emails do not distinguish case: the member keeps it in lower case, as the platform stores and returns it (T6).
  * Whether the typologies exist and are active is checked by the platform only (M5).
  */
 final class MemberData extends Data
@@ -35,7 +36,9 @@ final class MemberData extends Data
         public array $typologies,
         public bool $listed,
         public string $email,
-    ) {}
+    ) {
+        $this->email = mb_strtolower($email);
+    }
 
     /**
      * @return array<string, array<int, mixed>>
