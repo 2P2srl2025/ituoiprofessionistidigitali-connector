@@ -11,9 +11,17 @@ return new class extends Migration {
     {
         Schema::create('assignments', function (Blueprint $table): void {
             $table->id();
-            $table->uuid('uuid')->unique();
+            // Null while the proposal is a draft, a new one at every sending
+            $table->uuid('uuid')->nullable()->unique();
             $table->string('status');
-            $table->unsignedInteger('minutes')->default(0);
+            $table->timestamps();
+        });
+
+        Schema::create('assignment_activities', function (Blueprint $table): void {
+            $table->id();
+            $table->foreignId('assignment_id')->constrained();
+            $table->string('status')->default('open');
+            $table->unsignedInteger('minutes')->nullable();
             $table->timestamps();
         });
     }

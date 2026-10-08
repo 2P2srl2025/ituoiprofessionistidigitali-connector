@@ -120,33 +120,94 @@ final class HandlePlatformEvent implements ShouldQueue
 
 ## Registro delle transazioni
 
-Ogni affidamento deciso dentro il sistema si registra sul portale quando nasce, e poi a ogni cambio. Il modello lo dichiara con un'interfaccia e il pacchetto fa il resto:
+Ogni incarico inviato si registra sul portale quando nasce, e poi a ogni cambio. Lo stesso dato copre i due casi:
+
+- incarico **affidato** a una controparte che il sistema conosce già: `counterparty` presente, stati `invited`, `accepted`, `declined`, `revoked`, `completed`;
+- incarico **pubblicato** sul portale: `counterparty` e `kind` a `null`, stati `published` e `withdrawn`, con `expires_at` e `open_to` (`person`, `member` o tutti e due).
+
+Ogni transazione ha le sue attività (`TransactionActivityData`), ognuna con il proprio compenso a ore o a corpo, i minuti previsti (sempre obbligatori), lo stato, i minuti lavorati alla chiusura e la descrizione con i soli nomi del catalogo. `totalCents()` dà il totale come lo calcola il portale.
+
+La testata porta anche `title` (testo semplice, da 1 a 255 caratteri) e `description` (Markdown, al massimo 10000 caratteri; l'HTML dentro il testo non è un errore). Sono obbligatori in un incarico pubblicato, facoltativi negli altri. Regola R6: niente testo libero nelle descrizioni delle attività; `title` e `description` sono testi dello studio, senza dati del cliente; un incarico pubblicato li mostra sul portale.
+
+I DTO sono tipizzati e non conoscono i modelli del sistema: è il sistema che mappa i suoi modelli su di loro, di solito in una sola classe.
+
+| DTO | Cosa porta |
+| --- | --- |
+| `TransactionData` | La testata dell'invio, con `title` e `description` dello studio, e le sue attività |
+| `CounterpartyData` | `CounterpartyData::person($codiceFiscale, $nome, $cognome, $email, $partitaIva, $comune, $provincia)`, gli ultimi quattro facoltativi: il portale crea o aggiorna il professionista per codice fiscale. Oppure `CounterpartyData::member($idAderente)` |
+| `TransactionActivityData` | Un'attività: riferimento, compenso, minuti, stato, chiusura, descrizione |
+| `CompensationData` | `CompensationData::hourly($centesimiAllOra)` o `CompensationData::fixed($centesimi)` |
+| `ActivityDescriptionData` | Nome del processo e dell'attività nel catalogo, o `null`, e scadenza `Y-m-d` |
+
+```php
+$diretto = new TransactionData(
+    assignment_reference: $incarico->uuid,
+    kind: TransactionKind::PersonAssignment,
+    principal: $idAderente,
+    counterparty: CounterpartyData::person('RSSMRA80A01H501U', 'Mario', 'Rossi', 'mario.rossi@example.com', municipality: 'Bari', province: 'BA'),
+    typology: 'commercialisti',
+    status: TransactionStatus::Invited,
+    sent_at: CarbonImmutable::parse($proposta->sent_at),
+    activities: [new TransactionActivityData(
+        reference: (string) $riga->id,
+        compensation: CompensationData::hourly(4500),
+        estimated_minutes: 120,
+        status: TransactionActivityStatus::Open,
+        description: new ActivityDescriptionData('Contabilità ordinaria', 'Registrazione fatture', '2026-11-30'),
+    )],
+);
+```
+
+Un incarico pubblicato ha `kind: null`, `counterparty: null`, `status: TransactionStatus::Published`, `expires_at` e `open_to: ['person', 'member']`. `TransactionData::from()` legge anche il corpo del portale, con la descrizione nella forma dello schema (`{"process": {"name": "…"}}`).
+
+Il modello che corrisponde all'invio lo dichiara con un'interfaccia, e il pacchetto fa il resto:
 
 ```php
 use ITuoiProfessionistiDigitali\Connector\Concerns\RecordsOnPlatform;
 use ITuoiProfessionistiDigitali\Connector\Contracts\RecordsPlatformTransaction;
 use ITuoiProfessionistiDigitali\Connector\Data\TransactionData;
 
-final class ExternalAssignment extends Model implements RecordsPlatformTransaction
+final class ExternalAssignmentProposal extends Model implements RecordsPlatformTransaction
 {
     use RecordsOnPlatform;
 
-    public function platformTransactionReference(): string
+    public function platformTransactionReference(): ?string
     {
-        return $this->uuid;
+        return $this->uuid; // null per una bozza mai inviata
     }
 
     public function toPlatformTransaction(): TransactionData
     {
-        return TransactionData::from([/* kind, principal, counterparty, status, compensation, minuti, date, payload */]);
+        return resolve(ProposalMapper::class)->toTransaction($this); // la mappatura del sistema
     }
 }
 ```
 
-- Ogni salvataggio scrive la versione attuale in una outbox (`php artisan migrate` crea la tabella `platform_transaction_outbox`), nella stessa transazione del database, con una revisione nuova solo se qualcosa è cambiato.
+I modelli che cambiano la transazione senza esserlo, come le sue righe o l'incarico che la contiene, la registrano di nuovo a ogni salvataggio ed eliminazione:
+
+```php
+use ITuoiProfessionistiDigitali\Connector\Concerns\RecordsAffectedOnPlatform;
+use ITuoiProfessionistiDigitali\Connector\Contracts\AffectsPlatformTransactions;
+
+final class ExternalAssignmentActivity extends Model implements AffectsPlatformTransactions
+{
+    use RecordsAffectedOnPlatform;
+
+    public function affectedPlatformTransactions(): iterable
+    {
+        return ExternalAssignmentProposal::query()->whereKey($this->proposal_id)->get();
+    }
+}
+```
+
+- Un trait usato senza la sua interfaccia lancia una `LogicException`.
+- Ogni salvataggio scrive la versione attuale in una outbox (`php artisan migrate` crea la tabella `platform_transaction_outbox`), nella stessa transazione del database, con una revisione nuova solo se qualcosa è cambiato. Una bozza, con il riferimento a `null`, non ci arriva.
 - Un job in coda la manda con `PUT /transactions/{reference}`. Riprova sugli errori di rete e su un sistema non ancora attivo; si ferma, segnando l'errore, su una violazione del contratto o un conflitto.
-- `$model->isRecordedOnPlatform()` dice se il portale ha confermato la versione attuale: l'affidamento diventa operativo solo allora.
+- `$model->isRecordedOnPlatform()` dice se il portale ha confermato la versione attuale. La registrazione segue il lavoro, non lo blocca.
+- Ogni cinque minuti il comando schedulato `platform:send-outbox` rimanda le versioni rimaste indietro, per esempio mentre il sistema era in attesa di verifica.
+- Una transazione non si cancella: un invio ritirato si salva come `revoked`, con tutte le attività chiuse.
 - Lo storico si carica con `Platform::recordTransactions()`, fino a 500 per chiamata; `Platform::transactions()` legge il registro del sistema.
+- Nei test del sistema `PlatformOutbox::assertRecorded($model)` verifica che la versione attuale sia nella outbox, `PlatformOutbox::assertNotRecorded($model)` che una bozza non ci sia.
 
 ## Errori
 

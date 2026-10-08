@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use ITuoiProfessionistiDigitali\Connector\Contract;
 use ITuoiProfessionistiDigitali\Connector\Enums\TransactionKind;
 use ITuoiProfessionistiDigitali\Connector\Enums\TransactionStatus;
+use Spatie\LaravelData\Attributes\DataCollectionOf;
 use Spatie\LaravelData\Attributes\WithCast;
 use Spatie\LaravelData\Casts\DateTimeInterfaceCast;
 use Spatie\LaravelData\Data;
@@ -18,32 +19,37 @@ use Spatie\LaravelData\Data;
 final class RecordedTransactionData extends Data
 {
     /**
-     * @param  array<string, mixed>  $counterparty
-     * @param  array<string, mixed>  $compensation
-     * @param  array<string, mixed>  $payload
+     * @param  list<RecordedTransactionActivityData>  $activities
+     * @param  list<string>|null  $open_to
      */
     public function __construct(
         public string $id,
         public string $origin,
         public ?string $reference,
-        public TransactionKind $kind,
+        public ?string $assignment_reference,
+        public ?TransactionKind $kind,
+        public ?array $open_to,
         public string $principal,
-        public array $counterparty,
+        public ?CounterpartyData $counterparty,
         public string $typology,
+        public ?string $title,
+        public ?string $description,
         public TransactionStatus $status,
-        public array $compensation,
-        public ?int $estimated_minutes,
-        public int $minutes_worked,
         #[WithCast(DateTimeInterfaceCast::class, format: Contract::DATE_INPUT_FORMATS)]
-        public CarbonImmutable $invited_at,
+        public CarbonImmutable $sent_at,
+        #[WithCast(DateTimeInterfaceCast::class, format: Contract::DATE_INPUT_FORMATS)]
+        public ?CarbonImmutable $expires_at,
         #[WithCast(DateTimeInterfaceCast::class, format: Contract::DATE_INPUT_FORMATS)]
         public ?CarbonImmutable $responded_at,
         #[WithCast(DateTimeInterfaceCast::class, format: Contract::DATE_INPUT_FORMATS)]
         public ?CarbonImmutable $closed_at,
+        public string $currency,
+        public int $total_cents,
         public int $revision,
         public string $type,
         public int $schema_version,
-        public array $payload,
+        #[DataCollectionOf(RecordedTransactionActivityData::class)]
+        public array $activities,
         #[WithCast(DateTimeInterfaceCast::class, format: Contract::DATE_INPUT_FORMATS)]
         public ?CarbonImmutable $updated_at,
     ) {}

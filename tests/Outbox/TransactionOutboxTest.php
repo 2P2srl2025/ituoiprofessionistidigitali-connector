@@ -2,9 +2,12 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
+use ITuoiProfessionistiDigitali\Connector\Concerns\RecordsAffectedOnPlatform;
+use ITuoiProfessionistiDigitali\Connector\Concerns\RecordsOnPlatform;
 use ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus;
 use ITuoiProfessionistiDigitali\Connector\Jobs\SendPlatformTransaction;
 use ITuoiProfessionistiDigitali\Connector\Models\PlatformTransactionOutbox;
@@ -16,8 +19,17 @@ beforeEach(function (): void {
     Queue::fake();
 });
 
+it('R9: keeps a draft out of the register', function (): void {
+    $assignment = Assignment::query()->create(['status' => 'invited']);
+    $assignment->activities()->create();
+
+    expect(PlatformTransactionOutbox::query()->count())->toBe(0)
+        ->and($assignment->isRecordedOnPlatform())->toBeFalse();
+    Queue::assertNothingPushed();
+});
+
 it('R9: writes every save of the model in the outbox and queues it, with a new revision only on changes', function (): void {
-    $assignment = Assignment::query()->create(['uuid' => (string) Str::uuid7(), 'status' => 'invited']);
+    $assignment = sentAssignment();
 
     $row = PlatformTransactionOutbox::query()->sole();
 
@@ -25,6 +37,7 @@ it('R9: writes every save of the model in the outbox and queues it, with a new r
         ->and($row->revision)->toBe(1)
         ->and($row->status)->toBe(OutboxStatus::Pending)
         ->and($row->payload['status'])->toBe('invited')
+        ->and($row->payload['activities'])->toHaveCount(1)
         ->and($row->payload)->not->toHaveKey('revision');
     Queue::assertPushed(SendPlatformTransaction::class, fn (SendPlatformTransaction $job): bool => $job->reference === $assignment->uuid);
 
@@ -33,14 +46,35 @@ it('R9: writes every save of the model in the outbox and queues it, with a new r
     expect($row->refresh()->revision)->toBe(1);
     Queue::assertPushed(SendPlatformTransaction::class, 1);
 
-    $assignment->update(['status' => 'accepted', 'minutes' => 30]);
+    $assignment->update(['status' => 'accepted']);
 
-    expect($row->refresh()->revision)->toBe(2)->and($row->payload['minutes_worked'])->toBe(30);
+    expect($row->refresh()->revision)->toBe(2)->and($row->payload['status'])->toBe('accepted');
     Queue::assertPushed(SendPlatformTransaction::class, 2);
 });
 
+it('R9: records the transaction again when an activity changes or goes, without saving the transaction', function (): void {
+    $assignment = sentAssignment();
+    $assignment->update(['status' => 'accepted']);
+    $activity = $assignment->activities()->sole();
+    $row = PlatformTransactionOutbox::query()->sole();
+
+    $activity->update(['status' => 'completed', 'minutes' => 90]);
+
+    expect($row->refresh()->revision)->toBe(3)
+        ->and($row->payload['activities'][0]['status'])->toBe('completed')
+        ->and($row->payload['activities'][0]['minutes_worked'])->toBe(90);
+
+    $activity->touch();
+
+    expect($row->refresh()->revision)->toBe(3);
+
+    $activity->delete();
+
+    expect($row->refresh()->revision)->toBe(4)->and($row->payload['activities'])->toBe([]);
+});
+
 it('R9: tells whether the platform confirmed the current version', function (): void {
-    $assignment = Assignment::query()->create(['uuid' => (string) Str::uuid7(), 'status' => 'invited']);
+    $assignment = sentAssignment();
 
     expect($assignment->isRecordedOnPlatform())->toBeFalse();
 
@@ -48,8 +82,27 @@ it('R9: tells whether the platform confirmed the current version', function (): 
 
     expect($assignment->isRecordedOnPlatform())->toBeTrue();
 
-    $assignment->update(['minutes' => 10]);
+    $assignment->update(['status' => 'accepted']);
 
     expect($assignment->isRecordedOnPlatform())->toBeFalse()
-        ->and(new Assignment(['uuid' => 'never-saved'])->isRecordedOnPlatform())->toBeFalse();
+        ->and(new Assignment(['uuid' => (string) Str::uuid7()])->isRecordedOnPlatform())->toBeFalse();
 });
+
+it('refuses the traits on a model without their interface', function (string $trait): void {
+    $model = match ($trait)
+    {
+        'records' => fn (): Model => new class extends Model {
+            use RecordsOnPlatform;
+
+            public function platformTransactionReference(): ?string
+            {
+                return null;
+            }
+        },
+        default => fn (): Model => new class extends Model {
+            use RecordsAffectedOnPlatform;
+        },
+    };
+
+    expect($model)->toThrow(LogicException::class, 'non implementa');
+})->with(['records', 'affects']);

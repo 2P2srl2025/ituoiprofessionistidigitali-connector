@@ -49,14 +49,15 @@ final class PayloadValidator
     }
 
     /**
-     * Checks a payload against a JSON Schema, with the keys the platform uses (`payload.activities.0`).
+     * Checks a payload against a JSON Schema, with the keys the platform uses under its field
+     * (`payload.challenge`, `activities.0.description.process`).
      *
      * @param  array<string, mixed>  $schema
      * @param  array<string, mixed>  $payload
      *
      * @throws PlatformRequestException
      */
-    public static function validateSchema(array $schema, array $payload): void
+    public static function validateSchema(array $schema, array $payload, string $field = 'payload'): void
     {
         $error = new Validator()->validate(
             $payload === [] ? new stdClass : Helper::toJSON($payload),
@@ -72,18 +73,18 @@ final class PayloadValidator
 
         foreach (new ErrorFormatter()->format($error) as $pointer => $messages)
         {
-            $errors[self::key((string) $pointer)] = array_values(array_filter((array) $messages, is_string(...)));
+            $errors[self::key($field, (string) $pointer)] = array_values(array_filter((array) $messages, is_string(...)));
         }
 
         self::fail($errors);
     }
 
     /**
-     * A JSON pointer of the payload (`/items/0/name`) as the key POST /events uses (`payload.items.0.name`).
+     * A JSON pointer of the payload (`/items/0/name`) as the key the platform uses (`payload.items.0.name`).
      */
-    private static function key(string $pointer): string
+    private static function key(string $field, string $pointer): string
     {
-        return mb_rtrim('payload.'.str_replace('/', '.', mb_ltrim($pointer, '/')), '.');
+        return mb_rtrim($field.'.'.str_replace('/', '.', mb_ltrim($pointer, '/')), '.');
     }
 
     /**

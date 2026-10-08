@@ -219,11 +219,11 @@ final readonly class PlatformClient
     }
 
     /**
-     * The rules of the DTO, and the schema fixed in the package for the payload (rules R3–R6).
+     * The rules of the DTO, and the schema fixed in the package for the description of every activity (rules R3–R6 and R14).
      */
     private function checkTransaction(TransactionData $transaction): void
     {
-        TransactionData::validate($transaction->toArray());
+        TransactionData::validate($transaction->toWire(revision: 1));
 
         $path = Contract::transactionSchemaPath($transaction->type, $transaction->schema_version);
 
@@ -232,7 +232,10 @@ final readonly class PlatformClient
             /** @var array<string, mixed> $schema */
             $schema = json_decode((string) file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
 
-            PayloadValidator::validateSchema($schema, $transaction->payload);
+            foreach ($transaction->activities as $index => $activity)
+            {
+                PayloadValidator::validateSchema($schema, $activity->description->toWire(), "activities.{$index}.description");
+            }
         }
     }
 

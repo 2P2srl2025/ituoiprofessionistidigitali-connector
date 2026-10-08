@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Validation\ValidationException;
 use ITuoiProfessionistiDigitali\Connector\ConnectorConfig;
 use ITuoiProfessionistiDigitali\Connector\Contract;
 use ITuoiProfessionistiDigitali\Connector\Data\TransactionData;
+use ITuoiProfessionistiDigitali\Connector\Enums\TransactionActivityStatus;
 use ITuoiProfessionistiDigitali\Connector\Enums\TransactionResult;
 use ITuoiProfessionistiDigitali\Connector\Enums\TransactionStatus;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformRequestException;
@@ -25,28 +27,39 @@ function withToken(array $routes): void
 it('R7: registers a transaction with its revision under its reference', function (): void {
     withToken(['platform.test/api/v1/transactions/*' => Http::response(['data' => recordedTransaction()], 201)]);
 
-    $recorded = Platform::recordTransaction('incarico 1/a', TransactionData::from(transaction()), 2);
+    $recorded = Platform::recordTransaction('invio 1/a', TransactionData::from(transaction()), 2);
 
-    expect($recorded->status)->toBe(TransactionStatus::Invited)->and($recorded->id)->toBe(recordedTransaction()['id']);
+    expect($recorded->status)->toBe(TransactionStatus::Invited)
+        ->and($recorded->id)->toBe(recordedTransaction()['id'])
+        ->and($recorded->counterparty?->last_name)->toBe('Rossi')
+        ->and($recorded->counterparty?->province)->toBe('BA')
+        ->and($recorded->total_cents)->toBe(9000)
+        ->and($recorded->activities[0]->total_cents)->toBe(9000)
+        ->and($recorded->activities[0]->status)->toBe(TransactionActivityStatus::Open);
     Http::assertSent(fn (Request $request): bool => $request->method() === 'PUT'
-        && $request->url() === 'https://platform.test/api/v1/transactions/incarico%201%2Fa'
+        && $request->url() === 'https://platform.test/api/v1/transactions/invio%201%2Fa'
         && $request->data()['revision'] === 2
-        && $request->data()['principal'] === transaction()['principal']);
+        && $request->data()['principal'] === transaction()['principal']
+        && $request->data()['activities'][0]['reference'] === 'riga-1');
 });
 
-it('R6: does not send a payload that breaks the schema fixed in the package', function (): void {
+it('R6: checks every description against the schema fixed in the package before sending', function (): void {
+    withToken(['platform.test/api/v1/transactions/*' => Http::response(['data' => recordedTransaction()], 201)]);
+
+    Platform::recordTransaction('invio-1', TransactionData::from(transaction(['activities' => [
+        activity(['description' => ['process' => null, 'activity' => null, 'deadline' => null]]),
+    ]])), 1);
+
+    Http::assertSent(fn (Request $request): bool => str_ends_with($request->url(), '/transactions/invio-1')
+        && $request->data()['activities'][0]['description'] === ['process' => null, 'activity' => null, 'deadline' => null]);
+});
+
+it('R5 and R14: does not send what the rules of the register refuse', function (): void {
     Http::fake();
 
-    try
-    {
-        Platform::recordTransaction('incarico-1', TransactionData::from(transaction(['payload' => ['process' => ['name' => 'x', 'client' => 'Rossi'], 'activities' => []]])), 1);
-        $this->fail('The payload should be refused.');
-    }
-    catch (PlatformRequestException $exception)
-    {
-        expect($exception->errors)->toHaveKey('payload.process');
-        Http::assertNothingSent();
-    }
+    expect(fn () => Platform::recordTransaction('invio-1', TransactionData::from(transaction(['activities' => [activity(['minutes_worked' => 30])]])), 1))
+        ->toThrow(ValidationException::class);
+    Http::assertNothingSent();
 });
 
 it('R6: leaves the payload to the platform when the local validation is off or the schema is unknown', function (array $config, array $overrides): void {
@@ -55,26 +68,26 @@ it('R6: leaves the payload to the platform when the local validation is off or t
     Platform::clearResolvedInstances();
     withToken(['platform.test/api/v1/transactions/*' => Http::response(['data' => recordedTransaction()], 201)]);
 
-    Platform::recordTransaction('incarico-1', TransactionData::from(transaction($overrides)), 1);
+    Platform::recordTransaction('invio-1', TransactionData::from(transaction($overrides)), 1);
 
     Http::assertSentCount(2);
 })->with([
-    'validation off' => [['validate_payloads' => false], ['payload' => ['anything' => true]]],
-    'schema not in the package' => [[], ['type' => 'loan', 'payload' => ['anything' => true]]],
+    'validation off' => [['validate_payloads' => false], ['activities' => [activity(['description' => ['anything' => true]])]]],
+    'schema not in the package' => [[], ['type' => 'loan', 'activities' => [activity(['description' => ['anything' => true]])]]],
 ]);
 
 it('R7: reads the transaction already registered from a conflict', function (): void {
-    withToken(['platform.test/api/v1/transactions/*' => Http::response(['message' => 'Revisione già registrata.', 'data' => recordedTransaction(['minutes_worked' => 30])], 409)]);
+    withToken(['platform.test/api/v1/transactions/*' => Http::response(['message' => 'Revisione già registrata.', 'data' => recordedTransaction(['status' => 'accepted', 'responded_at' => '2026-10-07T09:00:00Z'])], 409)]);
 
     try
     {
-        Platform::recordTransaction('incarico-1', TransactionData::from(transaction()), 1);
+        Platform::recordTransaction('invio-1', TransactionData::from(transaction()), 1);
         $this->fail('The platform should answer 409.');
     }
     catch (PlatformRequestException $exception)
     {
         expect($exception->isConflict())->toBeTrue()
-            ->and($exception->existingTransaction?->minutes_worked)->toBe(30)
+            ->and($exception->existingTransaction?->status)->toBe(TransactionStatus::Accepted)
             ->and($exception->existingEvent)->toBeNull();
     }
 });
@@ -116,10 +129,33 @@ it('R11: reads the transactions of the system with filters and cursor', function
 
     $page = Platform::transactions(status: 'accepted', kind: 'person_assignment', updatedSince: new DateTimeImmutable('2026-10-07T12:00:00+02:00'), perPage: 10, cursor: 'start');
 
-    expect($page->transactions[0]->reference)->toBe('incarico-1')
+    expect($page->transactions[0]->reference)->toBe('invio-1')
         ->and($page->nextCursor)->toBe('abc')
         ->and($page->hasMore())->toBeTrue();
     Http::assertSent(fn (Request $request): bool => $request->url() === 'https://platform.test/api/v1/transactions?status=accepted&kind=person_assignment&updated_since=2026-10-07T12%3A00%3A00%2B02%3A00&per_page=10&cursor=start');
+});
+
+it('R3 and R11: reads a published transaction, without counterparty', function (): void {
+    withToken(['platform.test/api/v1/transactions*' => Http::response(['data' => [recordedTransaction([
+        'origin' => 'platform',
+        'kind' => null,
+        'open_to' => ['person', 'member'],
+        'counterparty' => null,
+        'title' => 'Contabilità di una srl',
+        'description' => 'Registrazione delle fatture.',
+        'status' => 'published',
+        'expires_at' => '2026-11-06T17:00:00Z',
+    ])], 'meta' => ['next_cursor' => null]])]);
+
+    $published = Platform::transactions()->transactions[0];
+
+    expect($published->counterparty)->toBeNull()
+        ->and($published->kind)->toBeNull()
+        ->and($published->open_to)->toBe(['person', 'member'])
+        ->and($published->title)->toBe('Contabilità di una srl')
+        ->and($published->description)->toBe('Registrazione delle fatture.')
+        ->and($published->status)->toBe(TransactionStatus::Published)
+        ->and($published->expires_at?->toIso8601ZuluString())->toBe('2026-11-06T17:00:00Z');
 });
 
 it('R11: tells when the last page is read', function (): void {

@@ -45,21 +45,32 @@ Regole per chi scrive codice che usa `ituoiprofessionistidigitali/connector` in 
 
 ## Registro delle transazioni
 
-- Ogni affidamento deciso dentro il sistema (incarico diretto a un collaboratore persona, affidamento fra due strutture dello stesso sistema) va registrato sul portale **quando nasce**, nello stato `invited`, e poi a ogni cambio. Non è facoltativo: è la regola R9 del contratto.
-- Il modello dell'affidamento implementa `RecordsPlatformTransaction` e usa il trait `RecordsOnPlatform`. Il pacchetto scrive ogni salvataggio in una outbox, nella stessa transazione del database, e lo manda in coda con la revisione giusta. Non chiamare `Platform::recordTransaction()` a mano per questi modelli.
-- Rendi operativo l'affidamento (link al collaboratore, attività nell'altra struttura) solo quando `$model->isRecordedOnPlatform()` è vero.
-- Mai `Model::query()->update()` o `DB::table()->update()` sui modelli che implementano l'interfaccia: gli aggiornamenti di massa saltano il modello e l'outbox. Aggiorna riga per riga.
-- Il payload `assignment` porta solo i nomi del processo e delle attività del catalogo dello studio: **mai** il nome, il codice fiscale o la partita IVA del cliente, e nessun testo libero.
+- Ogni incarico inviato va registrato sul portale **quando nasce**, e poi a ogni cambio: nello stato `invited` se è affidato a una controparte che il sistema conosce (collaboratore persona, altra struttura dello stesso sistema), nello stato `published`, senza controparte e con `expires_at`, se è pubblicato sul portale. Non è facoltativo: è la regola R9 del contratto.
+- Una transazione è un invio con prezzi fermi: dopo la prima registrazione cambiano solo lo stato, le sue date e, per ogni attività, stato, minuti lavorati e chiusura (R13). Per cambiare un prezzo revoca l'attività e mandala in un invio nuovo, con un riferimento nuovo.
+- Lo stato segue le attività (R14): `invited`, `declined`, `published` e `withdrawn` le hanno tutte `open`; `accepted` almeno una `open`; `completed` nessuna `open` e almeno una `completed`; `revoked` nessuna `open` e nessuna `completed`. Un invio ritirato prima della risposta è `revoked`, con tutte le attività `revoked`.
+- I minuti previsti sono obbligatori su ogni attività, anche a ore: il totale c'è sempre. I minuti lavorati si mandano solo su un'attività chiusa di un incarico a persona.
+- Costruisci la transazione con i DTO tipizzati (`TransactionData`, `CounterpartyData`, `TransactionActivityData`, `CompensationData`, `ActivityDescriptionData`), mai con un array a mano. La mappatura dai modelli del sistema sta in una sola classe del sistema: il pacchetto non conosce i tuoi modelli.
+- Una controparte persona porta l'anagrafica del professionista: codice fiscale, nome e cognome obbligatori; email, partita IVA, comune e provincia se il sistema li ha, altrimenti `null`. Il portale crea o aggiorna il professionista per codice fiscale. Un aderente porta solo il suo `id`.
+- Un incarico pubblicato ha `kind` e `counterparty` a `null`, `expires_at` e `open_to`; li conserva anche dopo che il portale gli assegna una controparte.
+- Il modello dell'invio implementa `RecordsPlatformTransaction` e usa il trait `RecordsOnPlatform`; `platformTransactionReference()` è `null` per una bozza, che non si registra. I modelli che cambiano l'invio senza esserlo (le righe, l'incarico che lo contiene) implementano `AffectsPlatformTransactions` e usano `RecordsAffectedOnPlatform`. Il pacchetto scrive ogni salvataggio in una outbox, nella stessa transazione del database, e lo manda in coda con la revisione giusta. Non chiamare `Platform::recordTransaction()` a mano per questi modelli.
+- La registrazione segue il lavoro, non lo blocca: l'affidamento è operativo da subito e l'outbox lo comunica dopo. `$model->isRecordedOnPlatform()` serve a mostrare se il portale ha confermato l'ultima versione, non a fermare il lavoro.
+- Una transazione non si cancella mai sul portale (R12): prima di eliminare un affidamento portalo a `revoked`, con `closed_at`, e salvalo; poi eliminalo. L'outbox manda la versione salvata anche dopo il delete.
+- Mai aggiornamenti di massa (`Model::query()->update()`, `DB::table()->update()`) sui campi che finiscono in `toPlatformTransaction()`: saltano il modello e l'outbox. Per quei campi aggiorna riga per riga. Sui campi che non fanno parte della transazione, come l'ultimo accesso del collaboratore, l'aggiornamento di massa va bene.
+- Il comando `platform:send-outbox` gira da solo ogni cinque minuti e rimanda le versioni rimaste indietro: serve che lo scheduler di Laravel sia attivo.
+- La descrizione `assignment` di ogni attività porta solo i nomi del modello di processo e dell'attività del catalogo dello studio, oppure `null`: **mai** il nome, il codice fiscale o la partita IVA del cliente, il nome di un'agenda o di un'area di progetto, né un testo libero.
+- R6: niente testo libero nelle descrizioni delle attività; `title` e `description` della testata sono testi dello studio, senza dati del cliente; un incarico pubblicato li mostra sul portale. In un incarico pubblicato sono obbligatori: `title` testo semplice fino a 255 caratteri, `description` Markdown fino a 10000.
 - Lo storico già esistente si carica una volta con `Platform::recordTransactions()`, fino a 500 per chiamata.
 - Una riga dell'outbox in stato `failed` è un errore nel codice (contratto violato o conflitto di revisione): leggi `last_error` e correggi, non ritentare alla cieca.
 - Un test di architettura nel progetto rende l'obbligo verificabile:
 
 ```php
 arch('assignments reach the register of the platform')
-    ->expect(App\Models\P2pExternalAssignment::class)
+    ->expect(App\Models\P2pExternalAssignmentProposal::class)
     ->toImplement(ITuoiProfessionistiDigitali\Connector\Contracts\RecordsPlatformTransaction::class)
     ->toUseTrait(ITuoiProfessionistiDigitali\Connector\Concerns\RecordsOnPlatform::class);
 ```
+
+- Nei test di ogni action che tocca un invio, le sue righe o l'incarico, verifica la comunicazione con `ITuoiProfessionistiDigitali\Connector\Testing\PlatformOutbox::assertRecorded($proposta)`, e con `assertNotRecorded()` che una bozza non parta.
 
 ## Errori
 

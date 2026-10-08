@@ -2,33 +2,27 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://ituoiprofessionistidigitali.it/contract/transaction-types/assignment/1.json",
     "title": "assignment v1",
-    "description": "Il lavoro affidato: un processo e le sue attività, con i nomi del catalogo dello studio. Nessun testo libero e nessun dato del cliente finale: nome, codice fiscale e partita IVA del cliente non hanno un campo e non sono ammessi.",
+    "description": "La descrizione di un'attività affidata, con i nomi del catalogo del sistema: null dove il catalogo non ha un nome. Nessun testo libero e nessun dato del cliente finale: nome, codice fiscale e partita IVA del cliente non hanno un campo e non sono ammessi.",
     "type": "object",
     "properties": {
         "process": {
-            "type": "object",
+            "type": ["object", "null"],
             "properties": {
                 "name": { "type": "string", "minLength": 1, "maxLength": 255 }
             },
             "required": ["name"],
             "additionalProperties": false
         },
-        "activities": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 500,
-            "items": {
-                "type": "object",
-                "properties": {
-                    "name": { "type": "string", "minLength": 1, "maxLength": 255 },
-                    "deadline": { "type": ["string", "null"], "format": "date" },
-                    "estimated_minutes": { "type": ["integer", "null"], "minimum": 0 }
-                },
-                "required": ["name"],
-                "additionalProperties": false
-            }
-        }
+        "activity": {
+            "type": ["object", "null"],
+            "properties": {
+                "name": { "type": "string", "minLength": 1, "maxLength": 255 }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+        },
+        "deadline": { "type": ["string", "null"], "format": "date" }
     },
-    "required": ["process", "activities"],
+    "required": ["process", "activity", "deadline"],
     "additionalProperties": false
 }

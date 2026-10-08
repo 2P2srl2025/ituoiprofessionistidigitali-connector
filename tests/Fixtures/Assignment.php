@@ -5,17 +5,18 @@ declare(strict_types=1);
 namespace ITuoiProfessionistiDigitali\Connector\Tests\Fixtures;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use ITuoiProfessionistiDigitali\Connector\Concerns\RecordsOnPlatform;
 use ITuoiProfessionistiDigitali\Connector\Contracts\RecordsPlatformTransaction;
 use ITuoiProfessionistiDigitali\Connector\Data\TransactionData;
 
 /**
- * An external assignment as a system would keep it: every save must reach the register.
+ * A proposal of an external assignment as a system would keep it: a sending with its activities,
+ * whose every save must reach the register.
  *
  * @property int $id
- * @property string $uuid
+ * @property string|null $uuid
  * @property string $status
- * @property int $minutes
  */
 final class Assignment extends Model implements RecordsPlatformTransaction
 {
@@ -25,26 +26,43 @@ final class Assignment extends Model implements RecordsPlatformTransaction
 
     protected $guarded = ['id'];
 
-    protected $attributes = ['minutes' => 0];
+    /**
+     * @return HasMany<AssignmentActivity, $this>
+     */
+    public function activities(): HasMany
+    {
+        return $this->hasMany(AssignmentActivity::class);
+    }
 
-    public function platformTransactionReference(): string
+    public function platformTransactionReference(): ?string
     {
         return $this->uuid;
     }
 
     public function toPlatformTransaction(): TransactionData
     {
+        $isAnswered = in_array($this->status, ['accepted', 'completed'], true);
+
         return TransactionData::from([
+            'assignment_reference' => 'incarico-1',
             'kind' => 'person_assignment',
             'principal' => self::PRINCIPAL,
-            'counterparty' => ['type' => 'person', 'tax_code' => 'RSSMRA80A01H501U', 'name' => 'Mario Rossi'],
+            'counterparty' => ['type' => 'person', 'tax_code' => 'RSSMRA80A01H501U', 'first_name' => 'Mario', 'last_name' => 'Rossi', 'email' => 'mario.rossi@example.com', 'vat_number' => null, 'municipality' => 'Bari', 'province' => 'BA'],
             'typology' => 'commercialisti',
+            'title' => 'Contabilità ordinaria 2026',
             'status' => $this->status,
-            'compensation' => ['form' => 'hourly', 'hourly_rate_cents' => 4500, 'currency' => 'EUR'],
-            'minutes_worked' => $this->minutes,
-            'invited_at' => '2026-10-06T18:00:00+02:00',
-            'responded_at' => $this->status === 'invited' ? null : '2026-10-07T09:00:00+02:00',
-            'payload' => ['process' => ['name' => 'Contabilità ordinaria'], 'activities' => [['name' => 'Registrazione fatture']]],
+            'sent_at' => '2026-10-06T18:00:00+02:00',
+            'responded_at' => $isAnswered ? '2026-10-07T09:00:00+02:00' : null,
+            'closed_at' => in_array($this->status, ['completed', 'revoked'], true) ? '2026-10-20T09:00:00+02:00' : null,
+            'activities' => $this->activities()->orderBy('id')->get()->map(static fn (AssignmentActivity $activity): array => [
+                'reference' => (string) $activity->id,
+                'compensation' => ['form' => 'hourly', 'hourly_rate_cents' => 4500],
+                'estimated_minutes' => 120,
+                'minutes_worked' => $activity->minutes,
+                'status' => $activity->status,
+                'closed_at' => $activity->status === 'open' ? null : '2026-10-20T09:00:00+02:00',
+                'description' => ['process' => ['name' => 'Contabilità ordinaria'], 'activity' => ['name' => 'Registrazione fatture'], 'deadline' => null],
+            ])->all(),
         ]);
     }
 }

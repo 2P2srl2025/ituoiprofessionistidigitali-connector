@@ -6,20 +6,18 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
-use Illuminate\Support\Str;
 use ITuoiProfessionistiDigitali\Connector\ConnectorConfig;
 use ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformRequestException;
 use ITuoiProfessionistiDigitali\Connector\Jobs\SendPlatformTransaction;
 use ITuoiProfessionistiDigitali\Connector\Models\PlatformTransactionOutbox;
-use ITuoiProfessionistiDigitali\Connector\Tests\Fixtures\Assignment;
 
 uses(RefreshDatabase::class);
 
 beforeEach(function (): void {
     Queue::fake();
     Http::preventStrayRequests();
-    $this->assignment = Assignment::query()->create(['uuid' => (string) Str::uuid7(), 'status' => 'invited']);
+    $this->assignment = sentAssignment();
     $this->row = PlatformTransactionOutbox::query()->sole();
 });
 

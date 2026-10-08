@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace ITuoiProfessionistiDigitali\Connector;
 
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\ServiceProvider;
 use ITuoiProfessionistiDigitali\Connector\Console\InstallCommand;
+use ITuoiProfessionistiDigitali\Connector\Console\SendOutboxCommand;
 use ITuoiProfessionistiDigitali\Connector\Events\PlatformEventReceived;
 use ITuoiProfessionistiDigitali\Connector\Listeners\ReplyToPing;
 
@@ -32,6 +34,10 @@ final class ConnectorServiceProvider extends ServiceProvider
         $this->loadRoutesFrom(__DIR__.'/../routes/webhook.php');
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
 
+        $this->callAfterResolving(Schedule::class, static function (Schedule $schedule): void {
+            $schedule->command(SendOutboxCommand::class)->everyFiveMinutes()->withoutOverlapping();
+        });
+
         if ($this->app->make(ConnectorConfig::class)->replyToPings)
         {
             $events->listen(PlatformEventReceived::class, ReplyToPing::class);
@@ -39,7 +45,7 @@ final class ConnectorServiceProvider extends ServiceProvider
 
         if ($this->app->runningInConsole())
         {
-            $this->commands([InstallCommand::class]);
+            $this->commands([InstallCommand::class, SendOutboxCommand::class]);
         }
     }
 }

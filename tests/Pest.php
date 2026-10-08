@@ -65,22 +65,40 @@ function catalogue(): array
 }
 
 /**
- * A transaction as a system registers it: an hourly assignment to a person, just invited.
+ * An activity as a system sends it: open, by the hour, 120 minutes at 45 euro.
+ *
+ * @return array<string, mixed>
+ */
+function activity(array $overrides = []): array
+{
+    return [
+        'reference' => 'riga-1',
+        'compensation' => ['form' => 'hourly', 'hourly_rate_cents' => 4500, 'fixed_amount_cents' => null],
+        'estimated_minutes' => 120,
+        'minutes_worked' => null,
+        'status' => 'open',
+        'closed_at' => null,
+        'description' => ['process' => ['name' => 'Contabilità ordinaria'], 'activity' => ['name' => 'Registrazione fatture'], 'deadline' => '2026-11-30'],
+        ...$overrides,
+    ];
+}
+
+/**
+ * A transaction as a system registers it: an assignment to a person, just sent, with one activity.
  *
  * @return array<string, mixed>
  */
 function transaction(array $overrides = []): array
 {
     return [
+        'assignment_reference' => 'incarico-1',
         'kind' => 'person_assignment',
         'principal' => '0199b6f0-4e2a-7b31-9f6c-2d8a1e5b7c43',
-        'counterparty' => ['type' => 'person', 'tax_code' => 'RSSMRA80A01H501U', 'name' => 'Mario Rossi'],
+        'counterparty' => ['type' => 'person', 'tax_code' => 'RSSMRA80A01H501U', 'first_name' => 'Mario', 'last_name' => 'Rossi', 'email' => 'mario.rossi@example.com', 'vat_number' => null, 'municipality' => 'Bari', 'province' => 'BA'],
         'typology' => 'commercialisti',
         'status' => 'invited',
-        'compensation' => ['form' => 'hourly', 'hourly_rate_cents' => 4500, 'currency' => 'EUR'],
-        'minutes_worked' => 0,
-        'invited_at' => '2026-10-06T18:00:00+02:00',
-        'payload' => ['process' => ['name' => 'Contabilità ordinaria'], 'activities' => [['name' => 'Registrazione fatture']]],
+        'sent_at' => '2026-10-06T18:00:00+02:00',
+        'activities' => [activity()],
         ...$overrides,
     ];
 }
@@ -95,23 +113,39 @@ function recordedTransaction(array $overrides = []): array
     return [
         'id' => '0199b6f5-0000-7000-8000-000000000001',
         'origin' => 'system',
-        'reference' => 'incarico-1',
+        'reference' => 'invio-1',
+        'assignment_reference' => 'incarico-1',
         'kind' => 'person_assignment',
+        'open_to' => null,
         'principal' => '0199b6f0-4e2a-7b31-9f6c-2d8a1e5b7c43',
-        'counterparty' => ['type' => 'person', 'tax_code' => 'RSSMRA80A01H501U', 'name' => 'Mario Rossi'],
+        'counterparty' => ['type' => 'person', 'tax_code' => 'RSSMRA80A01H501U', 'first_name' => 'Mario', 'last_name' => 'Rossi', 'email' => 'mario.rossi@example.com', 'vat_number' => null, 'municipality' => 'Bari', 'province' => 'BA'],
         'typology' => 'commercialisti',
+        'title' => null,
+        'description' => null,
         'status' => 'invited',
-        'compensation' => ['form' => 'hourly', 'hourly_rate_cents' => 4500, 'fixed_amount_cents' => null, 'currency' => 'EUR'],
-        'estimated_minutes' => null,
-        'minutes_worked' => 0,
-        'invited_at' => '2026-10-06T16:00:00Z',
+        'sent_at' => '2026-10-06T16:00:00Z',
+        'expires_at' => null,
         'responded_at' => null,
         'closed_at' => null,
+        'currency' => 'EUR',
+        'total_cents' => 9000,
         'revision' => 1,
         'type' => 'assignment',
         'schema_version' => 1,
-        'payload' => ['process' => ['name' => 'Contabilità ordinaria'], 'activities' => [['name' => 'Registrazione fatture']]],
+        'activities' => [[...activity(), 'total_cents' => 9000]],
         'updated_at' => '2026-10-07T13:30:00Z',
         ...$overrides,
     ];
+}
+
+/**
+ * A proposal prepared as a draft with one activity, then sent: the outbox has its revision 1.
+ */
+function sentAssignment(): ITuoiProfessionistiDigitali\Connector\Tests\Fixtures\Assignment
+{
+    $assignment = ITuoiProfessionistiDigitali\Connector\Tests\Fixtures\Assignment::query()->create(['status' => 'invited']);
+    $assignment->activities()->create();
+    $assignment->update(['uuid' => (string) Illuminate\Support\Str::uuid7()]);
+
+    return $assignment;
 }

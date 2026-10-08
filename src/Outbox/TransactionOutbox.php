@@ -18,13 +18,19 @@ final readonly class TransactionOutbox
 {
     public function __construct(private ConnectorConfig $config) {}
 
-    public function record(RecordsPlatformTransaction $model): PlatformTransactionOutbox
+    /**
+     * Null for a transaction never sent or published: a draft does not reach the register.
+     */
+    public function record(RecordsPlatformTransaction $model): ?PlatformTransactionOutbox
     {
         $reference = $model->platformTransactionReference();
-        $payload = $model->toPlatformTransaction()->toWire(revision: 0);
-        unset($payload['revision']);
-        $payload = json_decode((string) json_encode($payload, JSON_THROW_ON_ERROR), true, flags: JSON_THROW_ON_ERROR);
 
+        if ($reference === null)
+        {
+            return null;
+        }
+
+        $payload = $this->payload($model);
         $row = PlatformTransactionOutbox::query()->firstOrNew(['reference' => $reference]);
 
         if ($row->exists && $row->payload === $payload)
@@ -42,6 +48,20 @@ final readonly class TransactionOutbox
         dispatch(new SendPlatformTransaction($reference))->onQueue($this->config->queue)->afterCommit();
 
         return $row;
+    }
+
+    /**
+     * The current version of the model as the outbox keeps it: the body of PUT without the revision.
+     *
+     * @return array<string, mixed>
+     */
+    public function payload(RecordsPlatformTransaction $model): array
+    {
+        $payload = $model->toPlatformTransaction()->toWire(revision: 0);
+        unset($payload['revision']);
+
+        /** @var array<string, mixed> */
+        return json_decode((string) json_encode($payload, JSON_THROW_ON_ERROR), true, flags: JSON_THROW_ON_ERROR);
     }
 
     /**

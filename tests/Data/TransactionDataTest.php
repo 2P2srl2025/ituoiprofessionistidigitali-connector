@@ -2,27 +2,161 @@
 
 declare(strict_types=1);
 
+use Carbon\CarbonImmutable;
 use Illuminate\Validation\ValidationException;
+use ITuoiProfessionistiDigitali\Connector\Data\ActivityDescriptionData;
+use ITuoiProfessionistiDigitali\Connector\Data\CompensationData;
+use ITuoiProfessionistiDigitali\Connector\Data\CounterpartyData;
+use ITuoiProfessionistiDigitali\Connector\Data\TransactionActivityData;
 use ITuoiProfessionistiDigitali\Connector\Data\TransactionData;
+use ITuoiProfessionistiDigitali\Connector\Enums\TransactionActivityStatus;
+use ITuoiProfessionistiDigitali\Connector\Enums\TransactionKind;
+use ITuoiProfessionistiDigitali\Connector\Enums\TransactionStatus;
 
-it('R3, R5 and R8: accepts a valid transaction and sends it with its revision', function (): void {
+/**
+ * A professional as the counterparty of an assignment to a person.
+ *
+ * @param  array<string, mixed>  $overrides
+ * @return array<string, mixed>
+ */
+function person(array $overrides = []): array
+{
+    return ['type' => 'person', 'tax_code' => 'RSSMRA80A01H501U', 'first_name' => 'Mario', 'last_name' => 'Rossi', 'email' => 'mario.rossi@example.com', 'vat_number' => null, 'municipality' => 'Bari', 'province' => 'BA', ...$overrides];
+}
+
+/**
+ * The activities and dates of a transaction in each status, consistent with rules R8 and R14.
+ *
+ * @return array<string, mixed>
+ */
+function transactionIn(string $status): array
+{
+    return transaction(['status' => $status, ...match ($status)
+    {
+        'accepted', 'declined' => ['responded_at' => '2026-10-07T09:00:00Z'],
+        'completed' => ['responded_at' => '2026-10-07T09:00:00Z', 'closed_at' => '2026-10-20T09:00:00Z', 'activities' => [activity(['status' => 'completed', 'closed_at' => '2026-10-20T09:00:00Z', 'minutes_worked' => 90])]],
+        'revoked' => ['closed_at' => '2026-10-20T09:00:00Z', 'activities' => [activity(['status' => 'revoked', 'closed_at' => '2026-10-20T09:00:00Z'])]],
+        'published' => ['kind' => null, 'open_to' => ['person', 'member'], 'counterparty' => null, 'title' => 'Contabilità di una srl', 'description' => 'Registrazione delle fatture **mensile**.', 'expires_at' => '2026-11-06T18:00:00+01:00'],
+        'withdrawn' => ['kind' => null, 'open_to' => ['person'], 'counterparty' => null, 'title' => 'Contabilità di una srl', 'description' => 'Registrazione delle fatture.', 'expires_at' => '2026-11-06T18:00:00+01:00', 'closed_at' => '2026-10-20T09:00:00Z'],
+        default => [],
+    }]);
+}
+
+it('R3, R5 and R8: sends a valid transaction with exactly the body of the platform', function (): void {
     $wire = TransactionData::validateAndCreate(transaction())->toWire(revision: 3);
 
-    expect($wire['revision'])->toBe(3)
-        ->and($wire['invited_at'])->toBe('2026-10-06T18:00:00+02:00')
-        ->and($wire['compensation'])->toBe(['form' => 'hourly', 'hourly_rate_cents' => 4500, 'fixed_amount_cents' => null, 'currency' => 'EUR'])
+    expect(array_keys($wire))->toEqualCanonicalizing([
+        'assignment_reference', 'kind', 'open_to', 'principal', 'counterparty', 'typology', 'title', 'description', 'status', 'sent_at', 'expires_at',
+        'responded_at', 'closed_at', 'currency', 'revision', 'type', 'schema_version', 'activities',
+    ])->and($wire['revision'])->toBe(3)
+        ->and($wire['sent_at'])->toBe('2026-10-06T18:00:00+02:00')
+        ->and($wire['currency'])->toBe('EUR')
         ->and($wire['type'])->toBe('assignment')
-        ->and($wire['schema_version'])->toBe(1);
+        ->and($wire['schema_version'])->toBe(1)
+        ->and($wire['counterparty'])->toBe(['type' => 'person', 'tax_code' => 'RSSMRA80A01H501U', 'first_name' => 'Mario', 'last_name' => 'Rossi', 'email' => 'mario.rossi@example.com', 'vat_number' => null, 'municipality' => 'Bari', 'province' => 'BA'])
+        ->and($wire['activities'][0])->toBe([
+            'reference' => 'riga-1',
+            'compensation' => ['form' => 'hourly', 'hourly_rate_cents' => 4500, 'fixed_amount_cents' => null],
+            'estimated_minutes' => 120,
+            'minutes_worked' => null,
+            'status' => 'open',
+            'closed_at' => null,
+            'description' => ['process' => ['name' => 'Contabilità ordinaria'], 'activity' => ['name' => 'Registrazione fatture'], 'deadline' => '2026-11-30'],
+        ]);
 });
 
-it('sends an empty payload as a JSON object', function (): void {
-    expect(json_encode(TransactionData::from(transaction(['payload' => []]))->toWire(1)['payload']))->toBe('{}');
+it('R3 and R16: sends a publication without kind and counterparty, open to whom it says', function (): void {
+    $wire = TransactionData::validateAndCreate(transactionIn('published'))->toWire(revision: 1);
+
+    expect($wire['kind'])->toBeNull()
+        ->and($wire['counterparty'])->toBeNull()
+        ->and($wire['open_to'])->toBe(['person', 'member'])
+        ->and(array_slice(array_keys($wire), 4, 4))->toBe(['counterparty', 'typology', 'title', 'description'])
+        ->and($wire['title'])->toBe('Contabilità di una srl')
+        ->and($wire['description'])->toBe('Registrazione delle fatture **mensile**.')
+        ->and($wire['expires_at'])->toBe('2026-11-06T18:00:00+01:00');
 });
 
-it('R3, R5 and R8: refuses what the register would refuse', function (array $overrides, string $field): void {
+it('builds the same body from code, with the typed DTOs', function (): void {
+    $fromCode = new TransactionData(
+        assignment_reference: 'incarico-1',
+        kind: TransactionKind::PersonAssignment,
+        principal: '0199b6f0-4e2a-7b31-9f6c-2d8a1e5b7c43',
+        counterparty: CounterpartyData::person('RSSMRA80A01H501U', 'Mario', 'Rossi', 'mario.rossi@example.com', municipality: 'Bari', province: 'BA'),
+        typology: 'commercialisti',
+        status: TransactionStatus::Invited,
+        sent_at: CarbonImmutable::parse('2026-10-06T18:00:00+02:00'),
+        activities: [new TransactionActivityData(
+            reference: 'riga-1',
+            compensation: CompensationData::hourly(4500),
+            estimated_minutes: 120,
+            status: TransactionActivityStatus::Open,
+            description: new ActivityDescriptionData('Contabilità ordinaria', 'Registrazione fatture', '2026-11-30'),
+        )],
+    );
+
+    expect($fromCode->toWire(1))->toBe(TransactionData::validateAndCreate(transaction())->toWire(1));
+});
+
+it('R3: sends the optional details of a person as null when the system has none', function (): void {
+    expect(CounterpartyData::person('RSSMRA80A01H501U', 'Mario', 'Rossi')->toWire())->toBe([
+        'type' => 'person', 'tax_code' => 'RSSMRA80A01H501U', 'first_name' => 'Mario', 'last_name' => 'Rossi',
+        'email' => null, 'vat_number' => null, 'municipality' => null, 'province' => null,
+    ])->and(TransactionData::validateAndCreate(transaction(['counterparty' => person(['email' => null, 'vat_number' => '01234567897', 'municipality' => null, 'province' => null])]))->counterparty?->vat_number)
+        ->toBe('01234567897');
+});
+
+it('R6: takes the texts of the firm in a direct assignment too, with HTML in the Markdown', function (): void {
+    $wire = TransactionData::validateAndCreate(transaction(['title' => 'Bilancio 2026', 'description' => "## Cosa serve\n\n<b>entro</b> marzo"]))->toWire(1);
+
+    expect($wire['title'])->toBe('Bilancio 2026')
+        ->and($wire['description'])->toBe("## Cosa serve\n\n<b>entro</b> marzo")
+        ->and(TransactionData::validateAndCreate(transaction())->toWire(1))->toHaveKeys(['title', 'description']);
+});
+
+it('sends a member counterparty and a fixed price with only their own keys', function (): void {
+    $wire = TransactionData::from(transaction([
+        'kind' => 'firm_assignment',
+        'counterparty' => CounterpartyData::member('0199b6f1-5c3a-7e10-8d2b-4a6f9e1c3b55'),
+        'activities' => [activity(['compensation' => CompensationData::fixed(150000)])],
+    ]))->toWire(1);
+
+    expect($wire['counterparty'])->toBe(['type' => 'member', 'id' => '0199b6f1-5c3a-7e10-8d2b-4a6f9e1c3b55'])
+        ->and($wire['activities'][0]['compensation'])->toBe(['form' => 'fixed', 'hourly_rate_cents' => null, 'fixed_amount_cents' => 150000]);
+});
+
+it('R6: reads a description flat or in the form of the schema, and sends missing names as null', function (): void {
+    $flat = TransactionData::validateAndCreate(transaction(['activities' => [activity(['description' => ['process' => 'Contabilità ordinaria', 'activity' => null, 'deadline' => null]])]]));
+
+    expect($flat->activities[0]->description->process)->toBe('Contabilità ordinaria')
+        ->and($flat->toWire(1)['activities'][0]['description'])->toBe(['process' => ['name' => 'Contabilità ordinaria'], 'activity' => null, 'deadline' => null])
+        ->and(TransactionData::from(transaction(['activities' => [activity(['description' => []])]]))->toWire(1)['activities'][0]['description'])
+        ->toBe(['process' => null, 'activity' => null, 'deadline' => null]);
+});
+
+it('accepts every status with its activities and dates', function (string $status): void {
+    expect(TransactionData::validateAndCreate(transactionIn($status))->status)->toBe(TransactionStatus::from($status));
+})->with(['invited', 'accepted', 'declined', 'completed', 'revoked', 'published', 'withdrawn']);
+
+it('R15: computes the totals as the platform does, by the hour with the half cent up', function (int $rate, int $minutes, int $total): void {
+    $transaction = TransactionData::from(transaction(['activities' => [
+        activity(['compensation' => ['form' => 'hourly', 'hourly_rate_cents' => $rate], 'estimated_minutes' => $minutes]),
+        activity(['reference' => 'riga-2', 'compensation' => ['form' => 'fixed', 'fixed_amount_cents' => 150000], 'estimated_minutes' => 600]),
+    ]]));
+
+    expect($transaction->activities[0]->totalCents())->toBe($total)
+        ->and($transaction->activities[1]->totalCents())->toBe(150000)
+        ->and($transaction->totalCents())->toBe($total + 150000);
+})->with([
+    'whole' => [4500, 120, 9000],
+    'below the half' => [4529, 1, 75],
+    'the half' => [4530, 1, 76],
+]);
+
+it('refuses what the register would refuse', function (array $body, string $field): void {
     try
     {
-        TransactionData::validateAndCreate(transaction($overrides));
+        TransactionData::validateAndCreate($body);
         $this->fail('The transaction should not be valid.');
     }
     catch (ValidationException $exception)
@@ -30,26 +164,60 @@ it('R3, R5 and R8: refuses what the register would refuse', function (array $ove
         expect($exception->errors())->toHaveKey($field);
     }
 })->with([
-    'member for a person, without id' => [['counterparty' => ['type' => 'member']], 'counterparty.id'],
-    'person with an id' => [['counterparty' => ['type' => 'person', 'tax_code' => 'RSSMRA80A01H501U', 'name' => 'Mario Rossi', 'id' => '0199b6f0-4e2a-7b31-9f6c-2d8a1e5b7c43']], 'counterparty.id'],
-    'wrong tax code' => [['counterparty' => ['type' => 'person', 'tax_code' => 'RSSMRA80A01H501A', 'name' => 'Mario Rossi']], 'counterparty.tax_code'],
-    'both amounts' => [['compensation' => ['form' => 'hourly', 'hourly_rate_cents' => 4500, 'fixed_amount_cents' => 1, 'currency' => 'EUR']], 'compensation.fixed_amount_cents'],
-    'fixed without amount' => [['compensation' => ['form' => 'fixed', 'currency' => 'EUR']], 'compensation.fixed_amount_cents'],
-    'another currency' => [['compensation' => ['form' => 'hourly', 'hourly_rate_cents' => 4500, 'currency' => 'USD']], 'compensation.currency'],
-    'negative minutes' => [['minutes_worked' => -1], 'minutes_worked'],
-    'accepted without answer' => [['status' => 'accepted'], 'responded_at'],
-    'completed without closing' => [['status' => 'completed', 'responded_at' => '2026-10-07T09:00:00Z'], 'closed_at'],
-    'invited with an answer' => [['responded_at' => '2026-10-07T09:00:00Z'], 'responded_at'],
-    'typology in upper case' => [['typology' => 'Commercialisti'], 'typology'],
+    'R3 member without id' => [transaction(['kind' => 'firm_assignment', 'counterparty' => ['type' => 'member']]), 'counterparty.id'],
+    'R3 person with an id' => [transaction(['counterparty' => [...person(), 'id' => '0199b6f0-4e2a-7b31-9f6c-2d8a1e5b7c43']]), 'counterparty.id'],
+    'R3 wrong tax code' => [transaction(['counterparty' => person(['tax_code' => 'RSSMRA80A01H501A'])]), 'counterparty.tax_code'],
+    'R3 person without first name' => [transaction(['counterparty' => person(['first_name' => null])]), 'counterparty.first_name'],
+    'R3 person without last name' => [transaction(['counterparty' => person(['last_name' => null])]), 'counterparty.last_name'],
+    'R3 last name too long' => [transaction(['counterparty' => person(['last_name' => str_repeat('a', 256)])]), 'counterparty.last_name'],
+    'R3 wrong email' => [transaction(['counterparty' => person(['email' => 'mario'])]), 'counterparty.email'],
+    'R3 wrong vat number' => [transaction(['counterparty' => person(['vat_number' => '01234567890'])]), 'counterparty.vat_number'],
+    'R3 empty municipality' => [transaction(['counterparty' => person(['municipality' => ''])]), 'counterparty.municipality'],
+    'R3 province in lower case' => [transaction(['counterparty' => person(['province' => 'ba'])]), 'counterparty.province'],
+    'R3 member with a name' => [transaction(['kind' => 'firm_assignment', 'counterparty' => ['type' => 'member', 'id' => '0199b6f1-5c3a-7e10-8d2b-4a6f9e1c3b55', 'last_name' => 'Rossi']]), 'counterparty.last_name'],
+    'R3 sent without counterparty' => [transaction(['counterparty' => null]), 'counterparty'],
+    'R6 a field of the client' => [transaction(['activities' => [activity(['description' => ['process' => ['name' => 'x', 'client' => 'Rossi'], 'activity' => null, 'deadline' => null]])]]), 'activities.0.description.process'],
+    'R6 an empty name' => [transaction(['activities' => [activity(['description' => ['process' => '', 'activity' => null, 'deadline' => null]])]]), 'activities.0.description.process'],
+    'R6 a deadline that is not a date' => [transaction(['activities' => [activity(['description' => ['process' => null, 'activity' => null, 'deadline' => 'domani']])]]), 'activities.0.description.deadline'],
+    'R16 published without open_to' => [[...transactionIn('published'), 'open_to' => null], 'open_to'],
+    'R16 published open to nobody' => [[...transactionIn('published'), 'open_to' => []], 'open_to'],
+    'R16 published open to the same twice' => [[...transactionIn('published'), 'open_to' => ['person', 'person']], 'open_to.0'],
+    'R16 published open to a bank' => [[...transactionIn('published'), 'open_to' => ['bank']], 'open_to.0'],
+    'R16 published with a kind' => [[...transactionIn('published'), 'kind' => 'person_assignment'], 'kind'],
+    'R16 sent without kind' => [transaction(['kind' => null]), 'kind'],
+    'R3 published with a counterparty' => [[...transactionIn('published'), 'counterparty' => person()], 'counterparty'],
+    'R5 both amounts' => [transaction(['activities' => [activity(['compensation' => ['form' => 'hourly', 'hourly_rate_cents' => 4500, 'fixed_amount_cents' => 1]])]]), 'activities.0.compensation.fixed_amount_cents'],
+    'R5 fixed without amount' => [transaction(['activities' => [activity(['compensation' => ['form' => 'fixed']])]]), 'activities.0.compensation.fixed_amount_cents'],
+    'R5 another currency' => [transaction(['currency' => 'USD']), 'currency'],
+    'R5 no estimated minutes' => [transaction(['activities' => [activity(['estimated_minutes' => null])]]), 'activities.0.estimated_minutes'],
+    'R5 minutes of an open activity' => [transaction(['activities' => [activity(['minutes_worked' => 0])]]), 'activities.0.minutes_worked'],
+    'R5 completed activity without minutes' => [[...transactionIn('completed'), 'activities' => [activity(['status' => 'completed', 'closed_at' => '2026-10-20T09:00:00Z'])]], 'activities.0.minutes_worked'],
+    'R5 minutes of a firm' => [[...transactionIn('completed'), 'kind' => 'firm_assignment', 'counterparty' => ['type' => 'member', 'id' => '0199b6f1-5c3a-7e10-8d2b-4a6f9e1c3b55']], 'activities.0.minutes_worked'],
+    'R6 no activities' => [transaction(['activities' => []]), 'activities'],
+    'R8 accepted without answer' => [transaction(['status' => 'accepted']), 'responded_at'],
+    'R8 completed without closing' => [[...transactionIn('completed'), 'closed_at' => null], 'closed_at'],
+    'R8 invited with an answer' => [transaction(['responded_at' => '2026-10-07T09:00:00Z']), 'responded_at'],
+    'R8 published with an answer' => [[...transactionIn('published'), 'responded_at' => '2026-10-07T09:00:00Z'], 'responded_at'],
+    'R8 closed activity without closing' => [[...transactionIn('revoked'), 'activities' => [activity(['status' => 'revoked'])]], 'activities.0.closed_at'],
+    'R14 invited with a closed activity' => [[...transactionIn('invited'), 'activities' => transactionIn('revoked')['activities']], 'status'],
+    'R14 accepted without open activities' => [[...transactionIn('accepted'), 'activities' => transactionIn('completed')['activities']], 'status'],
+    'R14 completed with an open activity' => [[...transactionIn('completed'), 'activities' => [...transactionIn('completed')['activities'], activity(['reference' => 'riga-2'])]], 'status'],
+    'R14 revoked with a completed activity' => [[...transactionIn('revoked'), 'activities' => transactionIn('completed')['activities']], 'status'],
+    'R16 published without expiry' => [[...transactionIn('published'), 'expires_at' => null], 'expires_at'],
+    'R16 expiry before the sending' => [[...transactionIn('published'), 'expires_at' => '2026-10-01T09:00:00Z'], 'expires_at'],
+    'unknown status' => [transaction(['status' => 'rejected']), 'status'],
+    'typology in upper case' => [transaction(['typology' => 'Commercialisti']), 'typology'],
+    'R6 published without title' => [[...transactionIn('published'), 'title' => null], 'title'],
+    'R6 published without description' => [[...transactionIn('published'), 'description' => null], 'description'],
+    'R6 title too long' => [transaction(['title' => str_repeat('a', 256)]), 'title'],
+    'R6 empty title' => [transaction(['title' => '']), 'title'],
+    'R6 empty description' => [transaction(['description' => '']), 'description'],
+    'R6 description too long' => [transaction(['description' => str_repeat('a', TransactionData::MAX_DESCRIPTION_LENGTH + 1)]), 'description'],
 ]);
 
-it('R8: checks the dates of an already built status', function (): void {
-    TransactionData::validate(TransactionData::from(transaction(['status' => 'accepted', 'responded_at' => '2026-10-07T09:00:00Z']))->toArray());
+it('R8 and R14: checks an already built transaction, with enums', function (): void {
+    TransactionData::validate(TransactionData::from(transactionIn('completed'))->toWire(revision: 1));
 
-    expect(true)->toBeTrue();
-});
-
-it('R8: reads the status also when it is given as an enum', function (): void {
-    expect(fn () => TransactionData::validateAndCreate(transaction(['status' => ITuoiProfessionistiDigitali\Connector\Enums\TransactionStatus::Accepted])))
+    expect(fn () => TransactionData::validateAndCreate(transaction(['status' => TransactionStatus::Accepted])))
         ->toThrow(ValidationException::class);
 });
