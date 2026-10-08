@@ -131,6 +131,20 @@ it('stops on a contract violation, keeping the error', function (): void {
         ->last_error->toContain('Non è una provincia.');
 });
 
+it('stops a declaration that breaks the contract before any request, and the command does not queue it again', function (): void {
+    $this->row->update(['payload' => professional(['email' => null])]);
+    Http::fake();
+
+    declareOnPlatform();
+
+    expect($this->row->refresh())
+        ->status->toBe(OutboxStatus::Failed)
+        ->sent_revision->toBeNull()
+        ->last_error->toContain('email');
+    Http::assertNothingSent();
+    $this->artisan('platform:send-outbox')->expectsOutputToContain('Anagrafiche rimesse in coda: 0.')->assertSuccessful();
+});
+
 it('retries a server error or a system not yet active', function (int $status): void {
     platformAnsweringProfessionals($status, ['message' => 'Non ora.']);
 

@@ -104,6 +104,22 @@ it('stops on a contract violation or a conflict, keeping the error', function (i
         ->last_error->toContain('Non è un aderente.');
 })->with([422, 409]);
 
+it('stops a version that breaks the contract before any request, and the command does not queue it again', function (): void {
+    $payload = $this->row->payload;
+    $payload['counterparty']['email'] = null;
+    $this->row->update(['payload' => $payload]);
+    Http::fake();
+
+    send($this->assignment->uuid);
+
+    expect($this->row->refresh())
+        ->status->toBe(OutboxStatus::Failed)
+        ->sent_revision->toBeNull()
+        ->last_error->toContain('counterparty.email');
+    Http::assertNothingSent();
+    $this->artisan('platform:send-outbox')->expectsOutputToContain('Transazioni rimesse in coda: 0.')->assertSuccessful();
+});
+
 it('retries a server error or a system not yet active', function (int $status): void {
     platformAnsweringTransactions($status, ['message' => 'Non ora.']);
 

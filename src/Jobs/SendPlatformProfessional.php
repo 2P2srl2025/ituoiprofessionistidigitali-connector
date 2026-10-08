@@ -7,6 +7,7 @@ namespace ITuoiProfessionistiDigitali\Connector\Jobs;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use ITuoiProfessionistiDigitali\Connector\ConnectorConfig;
 use ITuoiProfessionistiDigitali\Connector\Data\ProfessionalRecordData;
 use ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus;
@@ -20,7 +21,9 @@ use ITuoiProfessionistiDigitali\Connector\PlatformClient;
 /**
  * Sends the latest declaration of the record of a professional (rule R18). A 404 waits while transactions to
  * the person wait to be registered, and is discarded otherwise; network errors and a system not yet active
- * are retried; a contract violation stops it, with the error kept in the outbox.
+ * are retried; a contract violation, found by the platform or by the package before the request, stops it, with
+ * the error kept in the outbox. The record is read with validateAndCreate(): one kept before a rule changed, such
+ * as a null email, fails as a contract violation instead of in the constructor.
  */
 final class SendPlatformProfessional implements ShouldQueue
 {
@@ -45,11 +48,17 @@ final class SendPlatformProfessional implements ShouldQueue
 
         try
         {
-            $client->declareProfessional($this->taxCode, ProfessionalRecordData::from($row->payload));
+            $client->declareProfessional($this->taxCode, ProfessionalRecordData::validateAndCreate($row->payload));
         }
         catch (ProfessionalNotAssignedException)
         {
             $this->notAssigned($row, $revision, $isAwaited);
+
+            return;
+        }
+        catch (ValidationException $exception)
+        {
+            $this->refused($row, $exception, isFinal: true);
 
             return;
         }

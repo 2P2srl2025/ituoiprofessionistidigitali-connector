@@ -208,7 +208,7 @@ final class ExternalAssignmentActivity extends Model implements AffectsPlatformT
 
 - Un trait usato senza la sua interfaccia lancia una `LogicException`.
 - Ogni salvataggio scrive la versione attuale in una outbox (`php artisan migrate` crea la tabella `platform_transaction_outbox`), nella stessa transazione del database, con una revisione nuova solo se qualcosa è cambiato. Una bozza, con il riferimento a `null`, non ci arriva. L'outbox tiene solo l'ultima versione: se l'invio di `invited` non è riuscito e intanto l'incarico è stato accettato, al portale arriva come prima registrazione la versione `accepted`, ed è accettata.
-- Un job in coda la manda con `PUT /transactions/{reference}`. Riprova sugli errori di rete e su un sistema non ancora attivo; si ferma, segnando l'errore, su una violazione del contratto o un conflitto.
+- Un job in coda la manda con `PUT /transactions/{reference}`. Riprova sugli errori di rete e su un sistema non ancora attivo; si ferma, segnando l'errore, su una violazione del contratto o un conflitto. Vale anche quando la violazione la trova il pacchetto prima della richiesta, per esempio su una versione salvata prima che cambiasse una regola: la riga finisce `failed` e `platform:send-outbox` non la riprende.
 - `$model->isRecordedOnPlatform()` dice se il portale ha confermato la versione attuale. La registrazione segue il lavoro, non lo blocca.
 - Ogni cinque minuti il comando schedulato `platform:send-outbox` rimanda le versioni rimaste indietro, per esempio mentre il sistema era in attesa di verifica.
 - Una transazione non si cancella: un invio ritirato si salva come `revoked`, con tutte le attività chiuse.
@@ -240,11 +240,12 @@ resolve(ProfessionalOutbox::class)->declare($collaboratore->codice_fiscale, new 
 - Il portale risponde 404 finché non ha una transazione a persona del sistema con quel codice fiscale. Se l'outbox delle transazioni ne ha ancora di mai confermate, la dichiarazione aspetta e riparte da sola quando una è confermata; altrimenti si chiude come `discarded`, con un log, e non è un errore (per esempio un codice fiscale corretto dopo l'invio).
 - Un 204 chiude la dichiarazione anche quando il portale tiene la sua anagrafica, più recente o bloccata (R20): il sistema non lo sa e non deve saperlo.
 - `Platform::declareProfessional($codiceFiscale, $anagrafica)` fa la sola chiamata, senza outbox: un 404 diventa `ProfessionalNotAssignedException`.
+- Una dichiarazione che viola il contratto, anche se la trova il pacchetto prima della richiesta, finisce `failed` con l'errore e non si ripete. Vale anche per una dichiarazione salvata prima che cambiasse una regola.
 - `platform:send-outbox` rimanda anche le dichiarazioni in attesa. Nei test `PlatformOutbox::assertDeclared($codiceFiscale, $anagrafica)` verifica che sia l'ultima dichiarazione nella outbox.
 
 ## Errori
 
-Ogni rifiuto è una `PlatformRequestException`, con `->status`, `->errors` (chiavi puntate come `payload.challenge`), `->reason` per i 403 (`SystemStatus`) e `->existingEvent` per i 409. Senza credenziali il client lancia `PlatformNotConfiguredException`.
+Ogni rifiuto del portale è una `PlatformRequestException`, con `->status`, `->errors` (chiavi puntate come `payload.challenge`), `->reason` per i 403 (`SystemStatus`) e `->existingEvent` per i 409. Lo è anche quando il pacchetto rifiuta prima di mandare per lo schema del payload o per un limite, come le 500 transazioni. Un DTO che viola il contratto è invece una `ValidationException` di Laravel, con le stesse chiavi puntate in `->errors()`, prima di qualunque richiesta. Senza credenziali il client lancia `PlatformNotConfiguredException`.
 
 ## Sistemi non Laravel
 

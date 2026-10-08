@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ITuoiProfessionistiDigitali\Connector\Jobs\Concerns;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Validation\ValidationException;
 use ITuoiProfessionistiDigitali\Connector\ConnectorConfig;
 use ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformRequestException;
@@ -43,15 +44,18 @@ trait SendsOutboxRow
     }
 
     /**
-     * Keeps a refusal of the platform: a final one stops the row, any other goes back to the queue to be retried.
+     * Keeps a refusal, of the platform or of the package before any request: a final one stops the row, any other
+     * goes back to the queue to be retried.
      *
-     * @throws PlatformRequestException
+     * @throws PlatformRequestException|ValidationException
      */
-    private function refused(PlatformTransactionOutbox|PlatformProfessionalOutbox $row, PlatformRequestException $exception, bool $isFinal): void
+    private function refused(PlatformTransactionOutbox|PlatformProfessionalOutbox $row, PlatformRequestException|ValidationException $exception, bool $isFinal): void
     {
+        $errors = $exception instanceof ValidationException ? $exception->errors() : $exception->errors;
+
         $row->update([
             'status' => $isFinal ? OutboxStatus::Failed : OutboxStatus::Pending,
-            'last_error' => mb_trim($exception->getMessage().' '.json_encode($exception->errors, JSON_UNESCAPED_UNICODE)),
+            'last_error' => mb_trim($exception->getMessage().' '.json_encode($errors, JSON_UNESCAPED_UNICODE)),
         ]);
 
         if (!$isFinal)

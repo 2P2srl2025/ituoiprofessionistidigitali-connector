@@ -6,6 +6,7 @@ namespace ITuoiProfessionistiDigitali\Connector\Jobs;
 
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Validation\ValidationException;
 use ITuoiProfessionistiDigitali\Connector\ConnectorConfig;
 use ITuoiProfessionistiDigitali\Connector\Data\TransactionData;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformRequestException;
@@ -15,9 +16,10 @@ use ITuoiProfessionistiDigitali\Connector\Outbox\ProfessionalOutbox;
 use ITuoiProfessionistiDigitali\Connector\PlatformClient;
 
 /**
- * Sends the last version of a transaction to the register. Network errors and a system not yet active
- * are retried; a contract violation or a conflict stop it, with the error kept in the outbox. Once its first
- * registration is confirmed, it sends again the declaration of the record of the person waiting for it (rule R18).
+ * Sends the last version of a transaction to the register. Network errors and a system not yet active are retried;
+ * a contract violation, found by the platform or by the package before the request, or a conflict stop it, with the
+ * error kept in the outbox. Once its first registration is confirmed, it sends again the declaration of the record
+ * of the person waiting for it (rule R18).
  */
 final class SendPlatformTransaction implements ShouldQueue
 {
@@ -43,6 +45,12 @@ final class SendPlatformTransaction implements ShouldQueue
         try
         {
             $client->recordTransaction($this->reference, $transaction, $revision);
+        }
+        catch (ValidationException $exception)
+        {
+            $this->refused($row, $exception, isFinal: true);
+
+            return;
         }
         catch (PlatformRequestException $exception)
         {
