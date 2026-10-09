@@ -7,14 +7,17 @@ namespace ITuoiProfessionistiDigitali\Connector\Facades;
 use Illuminate\Support\Facades\Facade;
 use ITuoiProfessionistiDigitali\Connector\Data\AcceptedEventData;
 use ITuoiProfessionistiDigitali\Connector\Data\AccessLinkData;
+use ITuoiProfessionistiDigitali\Connector\Data\ApplicationPage;
 use ITuoiProfessionistiDigitali\Connector\Data\EnvelopeData;
 use ITuoiProfessionistiDigitali\Connector\Data\EventTypeData;
 use ITuoiProfessionistiDigitali\Connector\Data\MemberData;
 use ITuoiProfessionistiDigitali\Connector\Data\MemberPage;
 use ITuoiProfessionistiDigitali\Connector\Data\ProfessionalRecordData;
+use ITuoiProfessionistiDigitali\Connector\Data\RecordedTransactionData;
 use ITuoiProfessionistiDigitali\Connector\Data\RegisteredMemberData;
 use ITuoiProfessionistiDigitali\Connector\Data\SystemData;
 use ITuoiProfessionistiDigitali\Connector\Data\TypologyData;
+use ITuoiProfessionistiDigitali\Connector\Enums\ApplicationStatus;
 use ITuoiProfessionistiDigitali\Connector\PlatformClient;
 
 /**
@@ -27,6 +30,8 @@ use ITuoiProfessionistiDigitali\Connector\PlatformClient;
  * @method static AccessLinkData memberAccessLink(string $memberId)
  * @method static AcceptedEventData send(EnvelopeData $envelope)
  * @method static void declareProfessional(string $taxCode, ProfessionalRecordData $record)
+ * @method static ApplicationPage applications(string $reference, ?ApplicationStatus $status = null, ?int $perPage = null, ?string $cursor = null)
+ * @method static RecordedTransactionData selectApplication(string $reference, string $applicationId)
  *
  * @see PlatformClient
  */

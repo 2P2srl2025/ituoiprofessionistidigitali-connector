@@ -7,6 +7,7 @@ namespace ITuoiProfessionistiDigitali\Connector\Outbox;
 use Carbon\CarbonImmutable;
 use ITuoiProfessionistiDigitali\Connector\ConnectorConfig;
 use ITuoiProfessionistiDigitali\Connector\Contracts\RecordsPlatformTransaction;
+use ITuoiProfessionistiDigitali\Connector\Data\RecordedTransactionData;
 use ITuoiProfessionistiDigitali\Connector\Data\TransactionData;
 use ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus;
 use ITuoiProfessionistiDigitali\Connector\Jobs\SendPlatformTransaction;
@@ -73,21 +74,26 @@ final readonly class TransactionOutbox
             {
                 $row = $rows->get($item['reference']) ?? new PlatformTransactionOutbox(['reference' => $item['reference']]);
 
-                if ($row->exists && $row->revision > $item['revision'])
-                {
-                    continue;
-                }
-
-                $row->fill([
-                    'payload' => $this->payloadOf($item['transaction']),
-                    'revision' => $item['revision'],
-                    'sent_revision' => $item['revision'],
-                    'status' => OutboxStatus::Sent,
-                    'last_error' => null,
-                    'sent_at' => CarbonImmutable::now(),
-                ])->save();
+                $this->confirm($row, $item['transaction'], $item['revision']);
             }
         });
+    }
+
+    /**
+     * The transaction the platform accepted with the selection of its counterparty, at the revision registered plus
+     * one (rule L4): kept as confirmed, unless the outbox already has a newer revision, so the next change of the
+     * model goes out with a higher one. It replaces a version still waiting at the same revision or lower, a
+     * withdrawal for instance, which the platform would refuse after the selection. A reference the outbox never had
+     * stays out of it.
+     */
+    public function selected(RecordedTransactionData $transaction): void
+    {
+        $row = PlatformTransactionOutbox::query()->where('reference', $transaction->reference)->first();
+
+        if ($row instanceof PlatformTransactionOutbox)
+        {
+            $this->confirm($row, $transaction->toTransaction(), $transaction->revision);
+        }
     }
 
     /**
@@ -122,5 +128,25 @@ final readonly class TransactionOutbox
         $row = PlatformTransactionOutbox::query()->where('reference', $reference)->first();
 
         return $row instanceof PlatformTransactionOutbox && $row->sent_revision === $row->revision;
+    }
+
+    /**
+     * Keeps a transaction the platform has at this revision as confirmed, unless the row already has a newer one.
+     */
+    private function confirm(PlatformTransactionOutbox $row, TransactionData $transaction, int $revision): void
+    {
+        if ($row->exists && $row->revision > $revision)
+        {
+            return;
+        }
+
+        $row->fill([
+            'payload' => $this->payloadOf($transaction),
+            'revision' => $revision,
+            'sent_revision' => $revision,
+            'status' => OutboxStatus::Sent,
+            'last_error' => null,
+            'sent_at' => CarbonImmutable::now(),
+        ])->save();
     }
 }

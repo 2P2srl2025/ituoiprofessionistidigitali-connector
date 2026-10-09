@@ -15,6 +15,8 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Validation\ValidationException;
 use ITuoiProfessionistiDigitali\Connector\Data\AcceptedEventData;
 use ITuoiProfessionistiDigitali\Connector\Data\AccessLinkData;
+use ITuoiProfessionistiDigitali\Connector\Data\ApplicationData;
+use ITuoiProfessionistiDigitali\Connector\Data\ApplicationPage;
 use ITuoiProfessionistiDigitali\Connector\Data\EnvelopeData;
 use ITuoiProfessionistiDigitali\Connector\Data\EventTypeData;
 use ITuoiProfessionistiDigitali\Connector\Data\ListedMemberData;
@@ -28,8 +30,10 @@ use ITuoiProfessionistiDigitali\Connector\Data\TransactionData;
 use ITuoiProfessionistiDigitali\Connector\Data\TransactionOutcomeData;
 use ITuoiProfessionistiDigitali\Connector\Data\TransactionPage;
 use ITuoiProfessionistiDigitali\Connector\Data\TypologyData;
+use ITuoiProfessionistiDigitali\Connector\Enums\ApplicationStatus;
 use ITuoiProfessionistiDigitali\Connector\Enums\Audience;
 use ITuoiProfessionistiDigitali\Connector\Enums\SystemStatus;
+use ITuoiProfessionistiDigitali\Connector\Exceptions\ApplicationNotSelectableException;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\ConcurrentMemberSyncException;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\MemberEmailsRejectedException;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\MemberNotAccessibleException;
@@ -37,6 +41,8 @@ use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformException;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformNotConfiguredException;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformRequestException;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\ProfessionalNotAssignedException;
+use ITuoiProfessionistiDigitali\Connector\Exceptions\TransactionNotFoundException;
+use ITuoiProfessionistiDigitali\Connector\Exceptions\TransactionNotPublishedException;
 use ITuoiProfessionistiDigitali\Connector\Outbox\TransactionOutbox;
 use ITuoiProfessionistiDigitali\Connector\Validation\PayloadValidator;
 use Throwable;
@@ -144,20 +150,17 @@ final readonly class PlatformClient
      */
     public function searchMembers(?string $typology = null, ?string $search = null, ?int $perPage = null, ?string $cursor = null): MemberPage
     {
-        $response = $this->request('GET', 'members', array_filter([
+        $response = $this->request('GET', 'members', $this->query([
             'typology' => $typology,
             'search' => $search,
             'per_page' => $perPage,
             'cursor' => $cursor,
-        ], static fn (mixed $value): bool => $value !== null));
-
-        $nextCursor = $response->json('meta.next_cursor');
-        $previousCursor = $response->json('meta.prev_cursor');
+        ]));
 
         return new MemberPage(
             members: array_map(ListedMemberData::from(...), $this->list($response)),
-            nextCursor: is_string($nextCursor) ? $nextCursor : null,
-            previousCursor: is_string($previousCursor) ? $previousCursor : null,
+            nextCursor: $this->cursor($response, 'next_cursor'),
+            previousCursor: $this->cursor($response, 'prev_cursor'),
         );
     }
 
@@ -282,20 +285,90 @@ final readonly class PlatformClient
      */
     public function transactions(?string $status = null, ?Audience $audience = null, ?DateTimeInterface $updatedSince = null, ?int $perPage = null, ?string $cursor = null): TransactionPage
     {
-        $response = $this->request('GET', 'transactions', array_filter([
+        $response = $this->request('GET', 'transactions', $this->query([
             'status' => $status,
             'audience' => $audience?->value,
             'updated_since' => $updatedSince === null ? null : CarbonImmutable::instance($updatedSince)->format(Contract::DATE_FORMAT),
             'per_page' => $perPage,
             'cursor' => $cursor,
-        ], static fn (mixed $value): bool => $value !== null));
-
-        $nextCursor = $response->json('meta.next_cursor');
+        ]));
 
         return new TransactionPage(
             transactions: array_map(RecordedTransactionData::from(...), $this->list($response)),
-            nextCursor: is_string($nextCursor) ? $nextCursor : null,
+            nextCursor: $this->cursor($response, 'next_cursor'),
         );
+    }
+
+    /**
+     * GET /transactions/{reference}/applications: the applications to a published transaction of the system, by
+     * applied_at (rule L7). A transaction born with its counterparty has none; after the selection they stay, selected
+     * and declined.
+     *
+     * @throws TransactionNotFoundException
+     */
+    public function applications(string $reference, ?ApplicationStatus $status = null, ?int $perPage = null, ?string $cursor = null): ApplicationPage
+    {
+        try
+        {
+            $response = $this->request('GET', 'transactions/'.rawurlencode($reference).'/applications', $this->query([
+                'status' => $status?->value,
+                'per_page' => $perPage,
+                'cursor' => $cursor,
+            ]));
+        }
+        catch (PlatformRequestException $exception)
+        {
+            throw $exception->status === 404 ? new TransactionNotFoundException($reference) : $exception;
+        }
+
+        return new ApplicationPage(
+            applications: array_map(ApplicationData::from(...), $this->list($response)),
+            nextCursor: $this->cursor($response, 'next_cursor'),
+        );
+    }
+
+    /**
+     * POST /transactions/{reference}/selection: selects a pending application of a published transaction of the
+     * system, which becomes accepted with the person as its counterparty (rule L4). Selecting the same application
+     * again answers with the transaction as it is. The outbox takes the revision of the platform, so the following
+     * changes of the model go out with a higher one; the event transaction.counterparty_selected arrives all the same.
+     *
+     * @throws TransactionNotFoundException
+     * @throws ApplicationNotSelectableException
+     * @throws TransactionNotPublishedException
+     */
+    public function selectApplication(string $reference, string $applicationId): RecordedTransactionData
+    {
+        try
+        {
+            $response = $this->request('POST', 'transactions/'.rawurlencode($reference).'/selection', ['application' => $applicationId]);
+        }
+        catch (PlatformRequestException $exception)
+        {
+            throw $this->selectionRefusal($exception, $reference, $applicationId);
+        }
+
+        $transaction = RecordedTransactionData::from($this->data($response));
+        $this->outbox->selected($transaction);
+
+        return $transaction;
+    }
+
+    /**
+     * The refusals of the selection as their own exceptions: the transaction not of the system, the application that
+     * cannot be selected, the transaction no longer published. Any other refusal stays as it is.
+     */
+    private function selectionRefusal(PlatformRequestException $exception, string $reference, string $applicationId): PlatformException
+    {
+        $fields = $exception->isContractViolation() ? array_keys($exception->errors) : [];
+
+        return match (true)
+        {
+            $exception->status === 404 => new TransactionNotFoundException($reference),
+            $fields === ['application'] => new ApplicationNotSelectableException($reference, $applicationId, $exception->errors['application'], $exception),
+            $fields === ['status'] => new TransactionNotPublishedException($reference, $exception->errors['status'], $exception),
+            default => $exception,
+        };
     }
 
     /**
@@ -512,6 +585,27 @@ final readonly class PlatformClient
         }
 
         return $normalized;
+    }
+
+    /**
+     * The filters of a GET without those not given.
+     *
+     * @param  array<string, mixed>  $filters
+     * @return array<string, mixed>
+     */
+    private function query(array $filters): array
+    {
+        return array_filter($filters, static fn (mixed $value): bool => $value !== null);
+    }
+
+    /**
+     * A cursor of a page in `meta`, null on the first or the last page.
+     */
+    private function cursor(Response $response, string $key): ?string
+    {
+        $cursor = $response->json('meta.'.$key);
+
+        return is_string($cursor) ? $cursor : null;
     }
 
     /**

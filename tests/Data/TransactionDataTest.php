@@ -8,6 +8,7 @@ use Illuminate\Validation\ValidationException;
 use ITuoiProfessionistiDigitali\Connector\Data\ActivityDescriptionData;
 use ITuoiProfessionistiDigitali\Connector\Data\CompensationData;
 use ITuoiProfessionistiDigitali\Connector\Data\CounterpartyData;
+use ITuoiProfessionistiDigitali\Connector\Data\RecordedTransactionData;
 use ITuoiProfessionistiDigitali\Connector\Data\TransactionActivityData;
 use ITuoiProfessionistiDigitali\Connector\Data\TransactionData;
 use ITuoiProfessionistiDigitali\Connector\Enums\Audience;
@@ -183,6 +184,31 @@ it('R15: computes the totals as the platform does, by the hour with the half cen
     'the half' => [4530, 1, 76],
 ]);
 
+it('R16 and L4: keeps whom a published assignment was open to, and its expiry, after the selection of a person', function (string $audience): void {
+    $wire = TransactionData::validateAndCreate([...transactionIn('accepted'), 'audience' => $audience, 'expires_at' => '2026-10-31T22:59:59Z'])->toWire(revision: 3);
+
+    expect($wire['audience'])->toBe($audience)
+        ->and($wire['counterparty'])->toBe(person())
+        ->and($wire['expires_at'])->toBe('2026-10-31T22:59:59+00:00');
+})->with(['any', 'person']);
+
+it('L4: sends again the transaction the platform accepted with the selection, as it returned it', function (): void {
+    $recorded = RecordedTransactionData::from(selectedTransaction(['activities' => [
+        [...activity(['compensation' => ['form' => 'fixed', 'hourly_rate_cents' => null, 'fixed_amount_cents' => 90000], 'description' => ['process' => null, 'activity' => null, 'deadline' => null]]), 'total_cents' => 90000],
+    ]]));
+
+    $wire = TransactionData::validateAndCreate($recorded->toTransaction()->toWire(revision: 3))->toWire(revision: 3);
+
+    expect($wire)->toBe([
+        ...Arr::except(selectedTransaction(), ['id', 'origin', 'reference', 'total_cents', 'updated_at']),
+        'sent_at' => '2026-10-06T16:00:00+00:00',
+        'expires_at' => '2026-10-31T22:59:59+00:00',
+        'responded_at' => '2026-10-12T09:00:00+00:00',
+        'revision' => 3,
+        'activities' => [activity(['compensation' => ['form' => 'fixed', 'hourly_rate_cents' => null, 'fixed_amount_cents' => 90000], 'description' => ['process' => null, 'activity' => null, 'deadline' => null]])],
+    ]);
+});
+
 it('refuses what the register would refuse', function (array $body, string $field): void {
     try
     {
@@ -219,6 +245,7 @@ it('refuses what the register would refuse', function (array $body, string $fiel
     'R16 without audience' => [[...transactionIn('published'), 'audience' => null], 'audience'],
     'R16 open to a bank' => [[...transactionIn('published'), 'audience' => 'bank'], 'audience'],
     'R16 sent without audience' => [transaction(['audience' => null]), 'audience'],
+    'R16 selected for firms, with a person' => [[...transactionIn('accepted'), 'audience' => 'member', 'expires_at' => '2026-10-31T22:59:59Z'], 'counterparty.type'],
     'R3 published with a counterparty' => [[...transactionIn('published'), 'counterparty' => person()], 'counterparty'],
     'R5 both amounts' => [transaction(['activities' => [activity(['compensation' => ['form' => 'hourly', 'hourly_rate_cents' => 4500, 'fixed_amount_cents' => 1]])]]), 'activities.0.compensation.fixed_amount_cents'],
     'R5 fixed without amount' => [transaction(['activities' => [activity(['compensation' => ['form' => 'fixed']])]]), 'activities.0.compensation.fixed_amount_cents'],

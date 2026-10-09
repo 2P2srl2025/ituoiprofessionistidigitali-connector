@@ -3,12 +3,18 @@
 declare(strict_types=1);
 
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Testing\TestResponse;
 use ITuoiProfessionistiDigitali\Connector\Contract;
 use ITuoiProfessionistiDigitali\Connector\Events\PlatformEventReceived;
+use ITuoiProfessionistiDigitali\Connector\Models\PlatformTransactionOutbox;
 use ITuoiProfessionistiDigitali\Connector\Signature\WebhookSignature;
 use ITuoiProfessionistiDigitali\Connector\Tests\TestCase;
+
+uses(RefreshDatabase::class);
 
 beforeEach(function (): void {
     Event::fake();
@@ -54,5 +60,37 @@ it('W1: answers 400 to a body that is not an envelope', function (string $body):
     'not json' => ['not json'],
     'missing fields' => [json_encode(['event_id' => 'x'])],
     'wrong type' => [json_encode(envelope(['schema_version' => 'one']))],
-    'event without sender' => [json_encode(envelope(['type' => Contract::PONG, 'sender' => null]))],
+    'event of a member without sender' => [json_encode(envelope(['type' => Contract::PONG, 'sender' => null]))],
+    'unknown type without sender' => [json_encode(envelope(['type' => 'transaction.unknown', 'sender' => null]))],
+    'selection with a broken payload' => [json_encode(envelope(['type' => Contract::COUNTERPARTY_SELECTED, 'sender' => null, 'payload' => ['transaction' => []]]))],
 ]);
+
+it('L6: hands the events of the platform, without sender, to the application', function (string $type, array $payload): void {
+    deliver($this, json_encode(envelope(['type' => $type, 'sender' => null, 'correlation_id' => recordedTransaction()['id'], 'payload' => $payload])))
+        ->assertNoContent();
+
+    Event::assertDispatched(PlatformEventReceived::class, fn (PlatformEventReceived $event): bool => $event->envelope->type === $type && $event->envelope->isFromPlatform());
+})->with([
+    'application received' => [Contract::APPLICATION_RECEIVED, applicationEvent()],
+    'application withdrawn' => [Contract::APPLICATION_WITHDRAWN, applicationEvent(['status' => 'withdrawn', 'closed_at' => '2026-10-11T08:00:00Z'])],
+    'counterparty selected' => [Contract::COUNTERPARTY_SELECTED, counterpartySelected()],
+]);
+
+it('L4: keeps the selection in the outbox before the listeners of the application run', function (): void {
+    // The real dispatcher: the outbox follows the events of the models, and the listener must run
+    $events = Event::getFacadeRoot()->dispatcher;
+    Event::swap($events);
+    Model::setEventDispatcher($events);
+    Queue::fake();
+    $assignment = confirmedAssignment();
+    $seen = null;
+    Event::listen(PlatformEventReceived::class, function () use (&$seen): void {
+        $seen = PlatformTransactionOutbox::query()->sole()->only(['revision', 'sent_revision']);
+    });
+
+    deliver($this, json_encode(envelope(['type' => Contract::COUNTERPARTY_SELECTED, 'sender' => null, 'payload' => counterpartySelected(['reference' => $assignment->uuid])])))
+        ->assertNoContent();
+
+    expect($seen)->toBe(['revision' => 2, 'sent_revision' => 2])
+        ->and(PlatformTransactionOutbox::query()->sole()->payload['status'])->toBe('accepted');
+});

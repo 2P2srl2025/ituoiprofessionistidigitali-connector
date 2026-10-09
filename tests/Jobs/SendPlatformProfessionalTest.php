@@ -26,8 +26,7 @@ beforeEach(function (): void {
     Http::preventStrayRequests();
     $this->travelTo(CarbonImmutable::parse('2026-10-08T10:20:00+02:00'));
     // A transaction to the person already confirmed: the platform knows the professional
-    sentAssignment();
-    PlatformTransactionOutbox::query()->update(['sent_revision' => 1, 'status' => OutboxStatus::Sent]);
+    confirmedAssignment();
     $this->row = resolve(ProfessionalOutbox::class)->declare('RSSMRA80A01H501U', ProfessionalRecordData::from(professional()));
 });
 

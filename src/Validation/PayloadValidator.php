@@ -6,6 +6,7 @@ namespace ITuoiProfessionistiDigitali\Connector\Validation;
 
 use ITuoiProfessionistiDigitali\Connector\Data\EnvelopeData;
 use ITuoiProfessionistiDigitali\Connector\Data\EventTypeData;
+use ITuoiProfessionistiDigitali\Connector\Enums\EventSender;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformRequestException;
 use Opis\JsonSchema\Errors\ErrorFormatter;
 use Opis\JsonSchema\Helper;
@@ -31,6 +32,11 @@ final class PayloadValidator
         if ($eventType === null)
         {
             self::fail(['type' => ["Il tipo di evento {$envelope->type} non è nel catalogo."]]);
+        }
+
+        if ($eventType->sent_by === EventSender::Platform)
+        {
+            self::fail(['type' => ["Il tipo di evento {$envelope->type} lo manda solo il portale."]]);
         }
 
         $version = $eventType->version($envelope->schema_version);

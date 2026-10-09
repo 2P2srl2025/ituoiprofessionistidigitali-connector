@@ -95,7 +95,7 @@ final class EnvelopeData extends Data
     {
         if ($this->sender === null || $this->recipient === null || $this->typology === null)
         {
-            throw new LogicException('A verification ping from the platform has nobody to reply to.');
+            throw new LogicException('An event from the platform has nobody to reply to.');
         }
 
         return self::make(
@@ -108,6 +108,14 @@ final class EnvelopeData extends Data
             correlationId: $this->event_id,
             eventId: $eventId,
         );
+    }
+
+    /**
+     * An event the platform generates itself, with no sender (rule L6): of a type it sends, or the verification ping.
+     */
+    public function isFromPlatform(): bool
+    {
+        return $this->sender === null && ($this->isVerification() || in_array($this->type, Contract::PLATFORM_EVENTS, true));
     }
 
     /**

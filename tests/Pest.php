@@ -147,6 +147,72 @@ function recordedTransaction(array $overrides = []): array
 }
 
 /**
+ * An application as the platform returns it: pending, without the data that come with the selection (rule L7).
+ *
+ * @return array<string, mixed>
+ */
+function application(array $overrides = []): array
+{
+    return [
+        'id' => '0199b6f9-0000-7000-8000-000000000001',
+        'status' => 'pending',
+        'applied_at' => '2026-10-10T08:00:00Z',
+        'terms_accepted_at' => '2026-10-10T08:00:00Z',
+        'accepted_revision' => 1,
+        'closed_at' => null,
+        'applicant' => ['type' => 'person', 'first_name' => 'Mario', 'last_name' => 'Rossi', 'municipality' => 'Bari', 'province' => 'BA', 'tax_code_verified' => false],
+        ...$overrides,
+    ];
+}
+
+/**
+ * The payload of transaction.application_received or transaction.application_withdrawn v1, on the published
+ * transaction invio-1.
+ *
+ * @return array<string, mixed>
+ */
+function applicationEvent(array $application = []): array
+{
+    return [
+        'transaction' => ['id' => recordedTransaction()['id'], 'reference' => 'invio-1'],
+        'application' => application($application),
+    ];
+}
+
+/**
+ * A published transaction after the selection of its counterparty, as the platform returns it (rule L4):
+ * accepted at revision 2, open to anyone, with its expiry, without signature.
+ *
+ * @return array<string, mixed>
+ */
+function selectedTransaction(array $overrides = []): array
+{
+    return recordedTransaction([
+        'origin' => 'platform',
+        'audience' => 'any',
+        'status' => 'accepted',
+        'expires_at' => '2026-10-31T22:59:59Z',
+        'responded_at' => '2026-10-12T09:00:00Z',
+        'revision' => 2,
+        ...$overrides,
+    ]);
+}
+
+/**
+ * The payload of transaction.counterparty_selected v1.
+ *
+ * @return array<string, mixed>
+ */
+function counterpartySelected(array $transaction = []): array
+{
+    return [
+        'transaction' => selectedTransaction($transaction),
+        'application' => application(['status' => 'selected', 'closed_at' => '2026-10-12T09:00:00Z']),
+        'contact' => ['mobile' => '+393331234567'],
+    ];
+}
+
+/**
  * A proposal prepared as a draft with one activity, then sent: the outbox has its revision 1.
  */
 function sentAssignment(): ITuoiProfessionistiDigitali\Connector\Tests\Fixtures\Assignment
@@ -154,6 +220,17 @@ function sentAssignment(): ITuoiProfessionistiDigitali\Connector\Tests\Fixtures\
     $assignment = ITuoiProfessionistiDigitali\Connector\Tests\Fixtures\Assignment::query()->create(['status' => 'invited']);
     $assignment->activities()->create();
     $assignment->update(['uuid' => (string) Illuminate\Support\Str::uuid7()]);
+
+    return $assignment;
+}
+
+/**
+ * A proposal sent, whose revision 1 the platform confirmed.
+ */
+function confirmedAssignment(): ITuoiProfessionistiDigitali\Connector\Tests\Fixtures\Assignment
+{
+    $assignment = sentAssignment();
+    ITuoiProfessionistiDigitali\Connector\Models\PlatformTransactionOutbox::query()->update(['sent_revision' => 1, 'status' => ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus::Sent]);
 
     return $assignment;
 }

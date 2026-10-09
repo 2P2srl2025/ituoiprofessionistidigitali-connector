@@ -46,6 +46,18 @@ Regole per chi scrive codice che usa `ituoiprofessionistidigitali/connector` in 
   - non conta sull'ordine: usa `occurred_at` e `correlation_id`;
   - ignora i tipi che non gestisce, senza eccezioni.
 - Un'eccezione in un listener sincrono fa rispondere 500 e il portale riprova: va bene solo se il lavoro non è stato salvato.
+- Gli eventi del portale (`transaction.*`) arrivano con `sender` a `null`: riconoscili con `$envelope->isFromPlatform()` e leggi il payload con il suo DTO. Non mandarli mai con `Platform::send()`: li manda solo il portale (L6).
+
+## Candidature e scelta della controparte
+
+- Le candidature arrivano solo agli incarichi pubblicati, oggi solo dai professionisti registrati sul portale. Leggile con `Platform::applications($reference)` o dagli eventi `transaction.application_received` (`ApplicationReceivedData`) e `transaction.application_withdrawn` (`ApplicationWithdrawnData`).
+- Prima della scelta del candidato hai solo nome, cognome, comune, provincia e `tax_code_verified` (L7). Non chiedere al portale altro e non cercarlo altrove: codice fiscale, email e partita IVA arrivano con la scelta, il cellulare solo nell'evento della scelta.
+- Scegli con `Platform::selectApplication($reference, $idCandidatura)`. Le eccezioni `TransactionNotFoundException`, `ApplicationNotSelectableException` e `TransactionNotPublishedException` non si ritentano: mostra l'errore e rileggi le candidature o la transazione.
+- Crea quello che serve alla scelta (l'anagrafica della persona, il cellulare) **solo** nel listener di `transaction.counterparty_selected` (`CounterpartySelectedData`), che arriva sempre, anche dopo una scelta fatta con l'API. Il listener è idempotente sull'`event_id` e sulla `reference` della transazione.
+- Un `tax_code_verified: false` vuol dire codice fiscale dichiarato dal professionista, con il solo controllo formale: se lo colleghi a un'anagrafica del sistema per codice fiscale e l'email non coincide, chiedi conferma allo studio.
+- Dopo la scelta il modello dell'invio passa ad `accepted` con la controparte **identica** a `$scelta->transaction->counterparty`, il `responded_at` della scelta e `signed_at` a `null` fino alla firma. `audience` ed `expires_at` restano quelli della pubblicazione. Il cellulare non va nella controparte.
+- L'outbox si allinea da sola alla revisione del portale, dalla risposta della scelta e dall'evento, prima dei listener: non toccare la revisione a mano e non chiamare `Platform::recordTransaction()`.
+- Un incarico `published` il sistema lo porta solo a `withdrawn`: ad `accepted` lo porta il portale con la scelta (R8).
 
 ## Collegamento
 
@@ -96,7 +108,7 @@ arch('assignments reach the register of the platform')
 
 ## Errori
 
-- `422`: il contratto è violato. Non ritentare: leggi `->errors`, le cui chiavi sono i campi in notazione puntata. L'unica eccezione è `ConcurrentMemberSyncException` di `syncMembers()`, che si ritenta con lo stesso elenco.
+- `422`: il contratto è violato. Non ritentare: leggi `->errors`, le cui chiavi sono i campi in notazione puntata. L'unica eccezione è `ConcurrentMemberSyncException` di `syncMembers()`, che si ritenta con lo stesso elenco. I 422 della scelta sono `ApplicationNotSelectableException` e `TransactionNotPublishedException`, con i messaggi in `->messages`.
 - `401`: il client rinnova il token da solo. Non mettere in cache il token a mano.
 - `403`: leggi `->reason` (`pending`, `suspended`, `revoked`). È una questione di collegamento, da sistemare con l'operatore del portale, non nel codice.
 - `5xx` ed errori di rete: il client riprova da solo qualche volta; dopo, la stessa busta si può rimandare.

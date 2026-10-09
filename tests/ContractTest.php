@@ -40,3 +40,39 @@ it('R6: fixes a valid JSON Schema 2020-12 for the description of an activity, wi
         ->and(new Validator()->validate($withoutNames, $schema)->isValid())->toBeTrue()
         ->and(new Validator()->validate($withText, $schema)->isValid())->toBeFalse();
 });
+
+/**
+ * Whether a payload matches the schema of version 1 of an event type, fixed in the package.
+ */
+function matchesSchema(string $type, array $payload): bool
+{
+    $schema = json_decode((string) file_get_contents(Contract::schemaPath($type, 1)));
+
+    return new Validator()->validate(json_decode((string) json_encode($payload)), $schema)->isValid();
+}
+
+it('C4 and L6: fixes a valid JSON Schema 2020-12 for every event of the platform, accepting what it sends', function (string $type, array $payload): void {
+    $schema = json_decode((string) file_get_contents(Contract::schemaPath($type, 1)));
+
+    expect($schema->{'$schema'})->toBe('https://json-schema.org/draft/2020-12/schema')
+        ->and($schema->{'$id'})->toBe("https://ituoiprofessionistidigitali.it/contract/event-types/{$type}/1.json")
+        ->and(matchesSchema($type, $payload))->toBeTrue();
+})->with([
+    'application received' => [Contract::APPLICATION_RECEIVED, applicationEvent()],
+    'application withdrawn' => [Contract::APPLICATION_WITHDRAWN, applicationEvent(['status' => 'withdrawn', 'closed_at' => '2026-10-11T08:00:00Z'])],
+    'counterparty selected' => [Contract::COUNTERPARTY_SELECTED, counterpartySelected()],
+    'counterparty selected, with a new field of the transaction' => [Contract::COUNTERPARTY_SELECTED, counterpartySelected(['settlements' => []])],
+]);
+
+it('L7: keeps the tax code, the email, the VAT number and the mobile out of an application, and nothing else in the events', function (string $type, array $payload): void {
+    expect(matchesSchema($type, $payload))->toBeFalse();
+})->with([
+    'tax code of the applicant' => [Contract::APPLICATION_RECEIVED, applicationEvent(['applicant' => [...application()['applicant'], 'tax_code' => 'RSSMRA80A01H501U']])],
+    'email of the applicant' => [Contract::APPLICATION_WITHDRAWN, applicationEvent(['status' => 'withdrawn', 'closed_at' => '2026-10-11T08:00:00Z', 'applicant' => [...application()['applicant'], 'email' => 'mario.rossi@example.com']])],
+    'received not pending' => [Contract::APPLICATION_RECEIVED, applicationEvent(['status' => 'selected'])],
+    'withdrawn without closing' => [Contract::APPLICATION_WITHDRAWN, applicationEvent(['status' => 'withdrawn'])],
+    'one more field' => [Contract::APPLICATION_RECEIVED, [...applicationEvent(), 'notes' => 'Testo libero']],
+    'selection without mobile' => [Contract::COUNTERPARTY_SELECTED, [...counterpartySelected(), 'contact' => []]],
+    'mobile not in E.164' => [Contract::COUNTERPARTY_SELECTED, [...counterpartySelected(), 'contact' => ['mobile' => '3331234567']]],
+    'selection already signed' => [Contract::COUNTERPARTY_SELECTED, counterpartySelected(['signed_at' => '2026-10-12T10:00:00Z'])],
+]);

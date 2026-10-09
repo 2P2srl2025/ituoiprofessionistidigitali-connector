@@ -2,11 +2,13 @@
 
 declare(strict_types=1);
 
+use ITuoiProfessionistiDigitali\Connector\Contract;
 use ITuoiProfessionistiDigitali\Connector\Data\EventTypeData;
 use ITuoiProfessionistiDigitali\Connector\Data\EventTypeVersionData;
 use ITuoiProfessionistiDigitali\Connector\Data\ListedMemberData;
 use ITuoiProfessionistiDigitali\Connector\Data\MemberPage;
 use ITuoiProfessionistiDigitali\Connector\Data\SystemData;
+use ITuoiProfessionistiDigitali\Connector\Enums\EventSender;
 use ITuoiProfessionistiDigitali\Connector\Enums\SystemStatus;
 
 it('C3: finds a version of an event type and the typologies it allows', function (): void {
@@ -18,6 +20,12 @@ it('C3: finds a version of an event type and the typologies it allows', function
         ->and($forEveryone->allowsTypology('commercialisti'))->toBeTrue()
         ->and($forSome->allowsTypology('commercialisti'))->toBeFalse()
         ->and($forSome->allowsTypology('avvocati'))->toBeTrue();
+});
+
+it('C3 and L6: reads who sends the events of a type, the members when the catalogue does not say', function (): void {
+    expect(EventTypeData::from(catalogue()[0])->sent_by)->toBe(EventSender::Members)
+        ->and(EventTypeData::from([...catalogue()[0], 'sent_by' => 'members'])->sent_by)->toBe(EventSender::Members)
+        ->and(EventTypeData::from([...catalogue()[0], 'name' => Contract::APPLICATION_RECEIVED, 'sent_by' => 'platform'])->sent_by)->toBe(EventSender::Platform);
 });
 
 it('S6: reads a system before and after its verification', function (): void {

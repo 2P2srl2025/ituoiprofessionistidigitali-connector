@@ -10,6 +10,7 @@ use Illuminate\Support\Str;
 use ITuoiProfessionistiDigitali\Connector\Concerns\RecordsAffectedOnPlatform;
 use ITuoiProfessionistiDigitali\Connector\Concerns\RecordsOnPlatform;
 use ITuoiProfessionistiDigitali\Connector\Data\ProfessionalRecordData;
+use ITuoiProfessionistiDigitali\Connector\Data\RecordedTransactionData;
 use ITuoiProfessionistiDigitali\Connector\Data\TransactionData;
 use ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus;
 use ITuoiProfessionistiDigitali\Connector\Facades\Platform;
@@ -141,5 +142,28 @@ it('R10 and R18: keeps the history registered in batch as confirmed, so the outb
         ->payload->toBe(resolve(TransactionOutbox::class)->payloadOf($transaction))
         ->and($rows['kept'])->revision->toBe(5)->status->toBe(OutboxStatus::Pending)
         ->and(resolve(ProfessionalOutbox::class)->declare('RSSMRA80A01H501U', ProfessionalRecordData::from(professional(['declared_at' => '2026-10-06T18:00:00+02:00']))))->not->toBeNull();
+    Queue::assertNotPushed(SendPlatformTransaction::class);
+});
+
+it('L4: takes the selection of the platform over a version waiting at the same revision, never over a newer one', function (): void {
+    $outbox = resolve(TransactionOutbox::class);
+    PlatformTransactionOutbox::query()->create(['reference' => 'waiting', 'revision' => 2, 'sent_revision' => 1, 'payload' => [], 'status' => OutboxStatus::Pending, 'last_error' => 'Timeout.']);
+    PlatformTransactionOutbox::query()->create(['reference' => 'ahead', 'revision' => 3, 'sent_revision' => 3, 'payload' => [], 'status' => OutboxStatus::Sent]);
+
+    foreach (['waiting', 'ahead', 'unknown'] as $reference)
+    {
+        $outbox->selected(RecordedTransactionData::from(selectedTransaction(['reference' => $reference])));
+    }
+
+    $rows = PlatformTransactionOutbox::query()->get()->keyBy('reference');
+
+    expect($rows->keys()->sort()->values()->all())->toBe(['ahead', 'waiting'])
+        ->and($rows['waiting'])
+        ->revision->toBe(2)
+        ->sent_revision->toBe(2)
+        ->status->toBe(OutboxStatus::Sent)
+        ->last_error->toBeNull()
+        ->payload->toBe($outbox->payloadOf(RecordedTransactionData::from(selectedTransaction())->toTransaction()))
+        ->and($rows['ahead'])->revision->toBe(3)->payload->toBe([]);
     Queue::assertNotPushed(SendPlatformTransaction::class);
 });

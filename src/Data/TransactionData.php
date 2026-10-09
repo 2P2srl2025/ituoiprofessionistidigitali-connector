@@ -76,12 +76,14 @@ final class TransactionData extends Data
         $status = TransactionStatus::tryFrom(TransactionActivityData::value($payload['status'] ?? null));
         $isPublication = $status?->isPublication() === true;
         $hasCounterparty = $status !== null && !$isPublication;
+        // R16: an assignment born published keeps its expiry and whom it was open to after the selection
+        $isBornPublished = ($payload['expires_at'] ?? null) !== null;
 
         return [
             'assignment_reference' => ['required', 'string', 'max:191'],
             'principal' => ['required', 'uuid'],
             // R16: whom the assignment is for; one sent to a counterparty is for its type, checked on counterparty.type
-            'audience' => ['required', Rule::enum(Audience::class), Rule::when($hasCounterparty, [Rule::notIn([Audience::Any->value])])],
+            'audience' => ['required', Rule::enum(Audience::class), Rule::when($hasCounterparty && !$isBornPublished, [Rule::notIn([Audience::Any->value])])],
             // A published assignment gets its counterparty from the platform, never from the system (rule R3)
             'counterparty' => ['present', Rule::requiredIf($hasCounterparty), Rule::prohibitedIf($isPublication), 'nullable', 'array'],
             'typology' => ['required', 'string', 'regex:/^[a-z][a-z0-9_]*$/'],

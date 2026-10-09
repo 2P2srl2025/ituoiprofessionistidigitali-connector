@@ -169,6 +169,8 @@ final class HandlePlatformEvent implements ShouldQueue
 }
 ```
 
+Gli eventi che genera il portale, quelli delle candidature e della scelta (`transaction.*`), arrivano allo stesso modo, con `sender` a `null` (regola L6): `$envelope->isFromPlatform()` li riconosce. Nel catalogo hanno `sent_by: platform` (`EventTypeData::$sent_by`), e `Platform::send()` li rifiuta prima di mandarli (E5). Il webhook risponde 400 a una busta senza mittente che non sia la verifica o un tipo del portale che il pacchetto conosce.
+
 ## Registro delle transazioni
 
 Ogni incarico inviato si registra sul portale quando nasce, e poi a ogni cambio (regola R9). Ogni PUT è la fotografia completa della transazione, quindi il portale accetta la prima registrazione in qualunque stato, purché coerente con le sue date e con le sue attività. Lo stesso dato copre i due casi:
@@ -268,6 +270,36 @@ final class ExternalAssignmentActivity extends Model implements AffectsPlatformT
 - Lo storico si carica con `Platform::recordTransactions()`, fino a 500 per chiamata, con le stesse regole della PUT (R10). Ogni transazione che il portale ha (`created`, `updated`, `unchanged`) entra nella outbox come già confermata, così la outbox conosce ogni persona incaricata. `Platform::transactions()` legge il registro del sistema, con il filtro `audience`.
 - Nei test del sistema `PlatformOutbox::assertRecorded($model)` verifica che la versione attuale sia nella outbox, `PlatformOutbox::assertNotRecorded($model)` che una bozza non ci sia.
 
+## Candidature e scelta della controparte
+
+Un incarico pubblicato trova la sua controparte sul portale. I professionisti registrati si candidano accettandone le condizioni, e il committente sceglie: la scelta porta l'incarico da `published` ad `accepted` (regole L2–L8). Il sistema del committente riceve tre eventi del portale:
+
+| Tipo | Payload | Quando |
+| --- | --- | --- |
+| `transaction.application_received` | `ApplicationReceivedData` | Una candidatura nuova, `pending` |
+| `transaction.application_withdrawn` | `ApplicationWithdrawnData` | Una candidatura ritirata, con `closed_at` |
+| `transaction.counterparty_selected` | `CounterpartySelectedData` | La scelta, fatta dal sistema con l'API o dallo studio dalla sua area |
+
+```php
+use ITuoiProfessionistiDigitali\Connector\Contract;
+use ITuoiProfessionistiDigitali\Connector\Data\CounterpartySelectedData;
+
+if ($envelope->type === Contract::COUNTERPARTY_SELECTED)
+{
+    $scelta = CounterpartySelectedData::from($envelope->payload);
+    $scelta->transaction;            // RecordedTransactionData, accepted, con la controparte persona
+    $scelta->application;            // ApplicationData, selected
+    $scelta->contact->mobile;        // il cellulare in E.164, fuori dalla controparte
+}
+```
+
+- Una candidatura (`ApplicationData`) porta lo stato, `applied_at`, il consenso alle condizioni (`terms_accepted_at`), la revisione accettata (`accepted_revision`) e il candidato (`ApplicantData`): nome, cognome, comune, provincia e `tax_code_verified`. Codice fiscale, email e partita IVA arrivano solo con la scelta, nella controparte, e il cellulare solo nell'evento della scelta (L7).
+- `Platform::applications($reference, ApplicationStatus::Pending, perPage: 25, cursor: null)` legge le candidature di un incarico, una pagina alla volta (`ApplicationPage`).
+- `Platform::selectApplication($reference, $idCandidatura)` sceglie e restituisce la transazione `accepted`. Scegliere di nuovo la stessa candidatura risponde con la transazione com'è. I rifiuti hanno un'eccezione propria: `TransactionNotFoundException` (404, la `reference` non è del sistema), `ApplicationNotSelectableException` (422 su `application`: candidatura sconosciuta, di un'altra transazione o non più `pending`) e `TransactionNotPublishedException` (422 su `status`: incarico ritirato o già accettato). Non si ritentano.
+- `transaction.counterparty_selected` arriva **sempre**, anche quando la scelta l'ha fatta il sistema: è la strada unica per creare quello che serve, come l'anagrafica della persona scelta. Il listener è idempotente sull'`event_id` e sulla `reference`.
+- Con la scelta il portale registra la transazione alla sua revisione più 1. Il pacchetto la scrive nella outbox come confermata, sia dalla risposta di `selectApplication()` sia dall'evento, prima dei listener. Se la outbox ha già una revisione più alta, resta com'è. Il prossimo salvataggio del modello parte quindi dalla revisione successiva, senza conflitti; una versione rimasta in attesa alla stessa revisione, come un ritiro, è sostituita dalla scelta, che il portale non disfa.
+- Da lì il modello continua come un incarico affidato: `accepted`, la controparte identica a quella ricevuta (`$scelta->transaction->counterparty`), `responded_at` della scelta, `signed_at` alla firma. `audience` ed `expires_at` restano quelli della pubblicazione (R16): un incarico pubblicato per `any` resta `any`. `RecordedTransactionData::toTransaction()` dà la transazione come il sistema la rimanda.
+
 ## Anagrafica dei professionisti
 
 Il professionista è uno per codice fiscale in tutto il portale. Nasce dalla prima registrazione di un incarico a persona, con l'anagrafica dell'invio. Quando poi l'anagrafica cambia nel sistema, il sistema la dichiara con `PUT /professionals/{tax_code}` (regola R18), datata dal momento del cambio: vince la dichiarazione più recente, non l'ultima arrivata (R19). Le transazioni non cambiano: ognuna conserva l'anagrafica del suo invio (R13).
@@ -298,7 +330,7 @@ resolve(ProfessionalOutbox::class)->declare($collaboratore->codice_fiscale, new 
 
 ## Errori
 
-Ogni rifiuto del portale è una `PlatformRequestException`, con `->status`, `->errors` (chiavi puntate come `payload.challenge`), `->reason` per i 403 (`SystemStatus`) e `->existingEvent` per i 409. Lo è anche quando il pacchetto rifiuta prima di mandare per lo schema del payload o per un limite, come le 500 transazioni. Un DTO che viola il contratto è invece una `ValidationException` di Laravel, con le stesse chiavi puntate in `->errors()`, prima di qualunque richiesta, come due email uguali nella stessa `syncMembers()`. Hanno un'eccezione propria due 404, `ProfessionalNotAssignedException` per l'anagrafica e `MemberNotAccessibleException` per il link d'accesso, e due 422 di `syncMembers()`, `ConcurrentMemberSyncException` e `MemberEmailsRejectedException`. Il limite dei 1000 aderenti è invece una `ValidationException` su `members`, che non si confonde con la corsa. Senza credenziali il client lancia `PlatformNotConfiguredException`.
+Ogni rifiuto del portale è una `PlatformRequestException`, con `->status`, `->errors` (chiavi puntate come `payload.challenge`), `->reason` per i 403 (`SystemStatus`) e `->existingEvent` per i 409. Lo è anche quando il pacchetto rifiuta prima di mandare per lo schema del payload o per un limite, come le 500 transazioni. Un DTO che viola il contratto è invece una `ValidationException` di Laravel, con le stesse chiavi puntate in `->errors()`, prima di qualunque richiesta, come due email uguali nella stessa `syncMembers()`. Hanno un'eccezione propria due 404, `ProfessionalNotAssignedException` per l'anagrafica e `MemberNotAccessibleException` per il link d'accesso, e due 422 di `syncMembers()`, `ConcurrentMemberSyncException` e `MemberEmailsRejectedException`. Anche le candidature e la scelta hanno le loro: `TransactionNotFoundException` per il 404, `ApplicationNotSelectableException` e `TransactionNotPublishedException` per i 422 della scelta. Il limite dei 1000 aderenti è invece una `ValidationException` su `members`, che non si confonde con la corsa. Senza credenziali il client lancia `PlatformNotConfiguredException`.
 
 ## Sistemi non Laravel
 
