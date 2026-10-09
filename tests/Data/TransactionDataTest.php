@@ -46,7 +46,7 @@ function transactionIn(string $status): array
     return transaction(['status' => $status, ...match ($status)
     {
         'accepted', 'declined' => ['responded_at' => '2026-10-07T09:00:00Z'],
-        'completed' => ['responded_at' => '2026-10-07T09:00:00Z', 'closed_at' => '2026-10-20T09:00:00Z', 'activities' => [activity(['status' => 'completed', 'closed_at' => '2026-10-20T09:00:00Z', 'minutes_worked' => 90])]],
+        'completed' => ['responded_at' => '2026-10-07T09:00:00Z', 'signed_at' => '2026-10-07T10:30:00Z', 'closed_at' => '2026-10-20T09:00:00Z', 'activities' => [activity(['status' => 'completed', 'closed_at' => '2026-10-20T09:00:00Z', 'minutes_worked' => 90])]],
         'revoked' => ['closed_at' => '2026-10-20T09:00:00Z', 'activities' => [activity(['status' => 'revoked', 'closed_at' => '2026-10-20T09:00:00Z'])]],
         'published' => ['audience' => 'any', 'counterparty' => null, 'title' => 'Contabilità di una srl', 'description' => 'Registrazione delle fatture **mensile**.', 'expires_at' => '2026-11-06T18:00:00+01:00'],
         'withdrawn' => ['audience' => 'person', 'counterparty' => null, 'title' => 'Contabilità di una srl', 'description' => 'Registrazione delle fatture.', 'expires_at' => '2026-11-06T18:00:00+01:00', 'closed_at' => '2026-10-20T09:00:00Z'],
@@ -57,10 +57,11 @@ function transactionIn(string $status): array
 it('R3, R5 and R8: sends a valid transaction with exactly the body of the platform', function (): void {
     $wire = TransactionData::validateAndCreate(transaction())->toWire(revision: 3);
 
-    expect(array_keys($wire))->toEqualCanonicalizing([
+    expect(array_keys($wire))->toBe([
         'assignment_reference', 'audience', 'principal', 'counterparty', 'typology', 'title', 'description', 'status', 'sent_at', 'expires_at',
-        'responded_at', 'closed_at', 'currency', 'revision', 'type', 'schema_version', 'activities',
-    ])->and($wire['revision'])->toBe(3)
+        'responded_at', 'signed_at', 'closed_at', 'currency', 'revision', 'type', 'schema_version', 'activities',
+    ])->and($wire['signed_at'])->toBeNull()
+        ->and($wire['revision'])->toBe(3)
         ->and($wire['sent_at'])->toBe('2026-10-06T18:00:00+02:00')
         ->and($wire['currency'])->toBe('EUR')
         ->and($wire['type'])->toBe('assignment')
@@ -152,6 +153,21 @@ it('accepts every status with its activities and dates', function (string $statu
     expect(TransactionData::validateAndCreate(transactionIn($status))->status)->toBe(TransactionStatus::from($status));
 })->with(['invited', 'accepted', 'declined', 'completed', 'revoked', 'published', 'withdrawn']);
 
+it('R8 and R22: accepts the signature where the contract allows it, and the work after it', function (array $body): void {
+    expect(TransactionData::validateAndCreate($body)->status)->toBe(TransactionStatus::from($body['status']));
+})->with([
+    'accepted, waiting for the signature' => [transactionIn('accepted')],
+    'accepted and signed' => [[...transactionIn('accepted'), 'signed_at' => '2026-10-07T10:30:00Z']],
+    'signed when answered' => [[...transactionIn('accepted'), 'signed_at' => '2026-10-07T09:00:00Z']],
+    'accepted and signed, with an activity done after the signature' => [[...transactionIn('accepted'), 'signed_at' => '2026-10-07T10:30:00Z', 'activities' => [
+        activity(['status' => 'completed', 'closed_at' => '2026-10-07T10:30:00Z', 'minutes_worked' => 90]),
+        activity(['reference' => 'riga-2']),
+    ]]],
+    'completed, signed when closed' => [[...transactionIn('completed'), 'signed_at' => '2026-10-20T09:00:00Z']],
+    'revoked before the signature, without minutes' => [[...transactionIn('revoked'), 'responded_at' => '2026-10-07T09:00:00Z', 'activities' => [activity(['status' => 'revoked', 'closed_at' => '2026-10-20T09:00:00Z', 'minutes_worked' => 0])]]],
+    'revoked after the signature, with the minutes worked' => [[...transactionIn('revoked'), 'responded_at' => '2026-10-07T09:00:00Z', 'signed_at' => '2026-10-07T10:30:00Z', 'activities' => [activity(['status' => 'revoked', 'closed_at' => '2026-10-20T09:00:00Z', 'minutes_worked' => 30])]]],
+]);
+
 it('R15: computes the totals as the platform does, by the hour with the half cent up', function (int $rate, int $minutes, int $total): void {
     $transaction = TransactionData::from(transaction(['activities' => [
         activity(['compensation' => ['form' => 'hourly', 'hourly_rate_cents' => $rate], 'estimated_minutes' => $minutes]),
@@ -216,6 +232,17 @@ it('refuses what the register would refuse', function (array $body, string $fiel
     'R8 completed without closing' => [[...transactionIn('completed'), 'closed_at' => null], 'closed_at'],
     'R8 invited with an answer' => [transaction(['responded_at' => '2026-10-07T09:00:00Z']), 'responded_at'],
     'R8 published with an answer' => [[...transactionIn('published'), 'responded_at' => '2026-10-07T09:00:00Z'], 'responded_at'],
+    'R8 completed without signature' => [[...transactionIn('completed'), 'signed_at' => null], 'signed_at'],
+    'R8 invited and signed' => [transaction(['signed_at' => '2026-10-07T10:30:00Z']), 'signed_at'],
+    'R8 declined and signed' => [[...transactionIn('declined'), 'signed_at' => '2026-10-07T10:30:00Z'], 'signed_at'],
+    'R8 published and signed' => [[...transactionIn('published'), 'signed_at' => '2026-10-07T10:30:00Z'], 'signed_at'],
+    'R8 withdrawn and signed' => [[...transactionIn('withdrawn'), 'signed_at' => '2026-10-07T10:30:00Z'], 'signed_at'],
+    'R8 signed without answer' => [[...transactionIn('revoked'), 'signed_at' => '2026-10-07T10:30:00Z'], 'signed_at'],
+    'R8 signed before the answer' => [[...transactionIn('accepted'), 'signed_at' => '2026-10-07T08:59:59Z'], 'signed_at'],
+    'R8 signed after the closing' => [[...transactionIn('completed'), 'signed_at' => '2026-10-20T09:00:01Z'], 'signed_at'],
+    'R22 an activity completed without signature' => [[...transactionIn('accepted'), 'activities' => [activity(['status' => 'completed', 'closed_at' => '2026-10-20T09:00:00Z', 'minutes_worked' => 90]), activity(['reference' => 'riga-2'])]], 'activities.0.status'],
+    'R22 an activity completed before the signature' => [[...transactionIn('completed'), 'activities' => [activity(['status' => 'completed', 'closed_at' => '2026-10-07T10:29:59Z', 'minutes_worked' => 90])]], 'activities.0.closed_at'],
+    'R22 minutes worked without signature' => [[...transactionIn('revoked'), 'activities' => [activity(['status' => 'revoked', 'closed_at' => '2026-10-20T09:00:00Z', 'minutes_worked' => 30])]], 'activities.0.minutes_worked'],
     'R8 closed activity without closing' => [[...transactionIn('revoked'), 'activities' => [activity(['status' => 'revoked'])]], 'activities.0.closed_at'],
     'R14 invited with a closed activity' => [[...transactionIn('invited'), 'activities' => transactionIn('revoked')['activities']], 'status'],
     'R14 accepted without open activities' => [[...transactionIn('accepted'), 'activities' => transactionIn('completed')['activities']], 'status'],
@@ -231,6 +258,7 @@ it('refuses what the register would refuse', function (array $body, string $fiel
     'without the key of the counterparty' => [Arr::except(transaction(), 'counterparty'), 'counterparty'],
     'without the key of the expiry' => [Arr::except(transaction(), 'expires_at'), 'expires_at'],
     'without the key of the answer' => [Arr::except(transaction(), 'responded_at'), 'responded_at'],
+    'without the key of the signature' => [Arr::except(transaction(), 'signed_at'), 'signed_at'],
     'without the key of the closing' => [Arr::except(transaction(), 'closed_at'), 'closed_at'],
     'an activity without the key of the minutes worked' => [transaction(['activities' => [Arr::except(activity(), 'minutes_worked')]]), 'activities.0.minutes_worked'],
     'an activity without the key of the closing' => [transaction(['activities' => [Arr::except(activity(), 'closed_at')]]), 'activities.0.closed_at'],

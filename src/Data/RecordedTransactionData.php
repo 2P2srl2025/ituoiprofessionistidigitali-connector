@@ -40,6 +40,8 @@ final class RecordedTransactionData extends Data
         #[WithCast(DateTimeInterfaceCast::class, format: Contract::DATE_INPUT_FORMATS)]
         public ?CarbonImmutable $responded_at,
         #[WithCast(DateTimeInterfaceCast::class, format: Contract::DATE_INPUT_FORMATS)]
+        public ?CarbonImmutable $signed_at,
+        #[WithCast(DateTimeInterfaceCast::class, format: Contract::DATE_INPUT_FORMATS)]
         public ?CarbonImmutable $closed_at,
         public string $currency,
         public int $total_cents,

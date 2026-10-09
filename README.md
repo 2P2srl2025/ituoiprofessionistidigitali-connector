@@ -176,7 +176,9 @@ Ogni incarico inviato si registra sul portale quando nasce, e poi a ogni cambio 
 - incarico **affidato** a una controparte che il sistema conosce già: `counterparty` presente, `audience` uguale al suo tipo (`person` o `member`), `expires_at` a `null`, stati `invited`, `accepted`, `declined`, `revoked`, `completed`;
 - incarico **pubblicato** sul portale: `counterparty` a `null`, stati `published` e `withdrawn`, con `expires_at` e `audience` (`person`, `member` o `any`).
 
-La struttura è una sola: tutte le chiavi ci sono sempre, anche quando valgono `null`, nella testata (`counterparty`, `expires_at`, `responded_at`, `closed_at`), nella controparte, nelle attività, nel compenso e nella descrizione. Una chiave mancante è un 422; i DTO del pacchetto le emettono tutte. `audience` non cambia dopo la prima registrazione.
+La struttura è una sola: tutte le chiavi ci sono sempre, anche quando valgono `null`, nella testata (`counterparty`, `expires_at`, `responded_at`, `signed_at`, `closed_at`), nella controparte, nelle attività, nel compenso e nella descrizione. Una chiave mancante è un 422; i DTO del pacchetto le emettono tutte. `audience` non cambia dopo la prima registrazione.
+
+`signed_at` è la data della firma dell'incarico, a mano o elettronica, che il sistema registra (R8, R22). È `null` in `published`, `withdrawn`, `invited` e `declined`; facoltativa in `accepted`, dove `null` vuol dire «accettato, in attesa di firma», e in `revoked`; obbligatoria in `completed`. Sta fra `responded_at`, che vuole, e `closed_at`. La firma viene prima del lavoro: senza firma nessuna attività è `completed` e i minuti lavorati sono `null` o `0`, anche in un'attività `revoked`; un'attività `completed` non chiude prima della firma. Una volta mandata, la firma non torna `null`: il pacchetto non conosce la revisione precedente, il controllo lo fa il portale (R13).
 
 Ogni transazione ha le sue attività (`TransactionActivityData`), ognuna con il proprio compenso a ore o a corpo, i minuti previsti (sempre obbligatori), lo stato, i minuti lavorati alla chiusura e la descrizione con i soli nomi del catalogo. `totalCents()` dà il totale come lo calcola il portale.
 

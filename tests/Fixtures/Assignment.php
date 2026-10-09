@@ -54,6 +54,7 @@ final class Assignment extends Model implements RecordsPlatformTransaction
             'status' => $this->status,
             'sent_at' => '2026-10-06T18:00:00+02:00',
             'responded_at' => $isAnswered ? '2026-10-07T09:00:00+02:00' : null,
+            'signed_at' => $isAnswered ? '2026-10-07T10:30:00+02:00' : null,
             'closed_at' => in_array($this->status, ['completed', 'revoked'], true) ? '2026-10-20T09:00:00+02:00' : null,
             'activities' => $this->activities()->orderBy('id')->get()->map(static fn (AssignmentActivity $activity): array => [
                 'reference' => (string) $activity->id,

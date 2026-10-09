@@ -166,6 +166,18 @@ it('R3 and R11: reads a published transaction, without counterparty', function (
         ->and($published->expires_at?->toIso8601ZuluString())->toBe('2026-11-06T17:00:00Z');
 });
 
+it('R11 and R22: reads the signature of an accepted transaction, null while it waits for it', function (): void {
+    withToken(['platform.test/api/v1/transactions*' => Http::response(['data' => [
+        recordedTransaction(['status' => 'accepted', 'responded_at' => '2026-10-07T09:00:00Z', 'signed_at' => '2026-10-07T10:30:00Z']),
+        recordedTransaction(['reference' => 'invio-2', 'status' => 'accepted', 'responded_at' => '2026-10-07T09:00:00Z']),
+    ], 'meta' => ['next_cursor' => null]])]);
+
+    [$signed, $waiting] = Platform::transactions()->transactions;
+
+    expect($signed->signed_at?->toIso8601ZuluString())->toBe('2026-10-07T10:30:00Z')
+        ->and($waiting->signed_at)->toBeNull();
+});
+
 it('R11: tells when the last page is read', function (): void {
     withToken(['platform.test/api/v1/transactions*' => Http::response(['data' => [], 'meta' => ['next_cursor' => null]])]);
 

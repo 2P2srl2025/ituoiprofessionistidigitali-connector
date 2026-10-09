@@ -22,7 +22,7 @@ use Spatie\LaravelData\Transformers\DateTimeInterfaceTransformer;
 /**
  * An assignment of the system as the register of the platform receives it: sent to a counterparty,
  * or published on the platform without one. Both have the same keys, all of them always present;
- * only the values change. The revision is kept by the outbox of the package (rules R3, R5, R8, R14 and R16).
+ * only the values change. The revision is kept by the outbox of the package (rules R3, R5, R8, R14, R16 and R22).
  *
  * The part fixed at the sending (audience, counterparty, typology, texts, prices) is the same at every
  * revision (rule R13): a system builds it from what it kept when it sent the assignment, not from its records now.
@@ -58,6 +58,9 @@ final class TransactionData extends Data
         public ?CarbonImmutable $responded_at = null,
         #[WithCast(DateTimeInterfaceCast::class, format: Contract::DATE_INPUT_FORMATS)]
         #[WithTransformer(DateTimeInterfaceTransformer::class, format: Contract::DATE_FORMAT)]
+        public ?CarbonImmutable $signed_at = null,
+        #[WithCast(DateTimeInterfaceCast::class, format: Contract::DATE_INPUT_FORMATS)]
+        #[WithTransformer(DateTimeInterfaceTransformer::class, format: Contract::DATE_FORMAT)]
         public ?CarbonImmutable $closed_at = null,
         public string $currency = 'EUR',
         public string $type = 'assignment',
@@ -89,6 +92,15 @@ final class TransactionData extends Data
             'title' => ['required', 'string', 'max:255'],
             'description' => ['required', 'string', 'max:'.self::MAX_DESCRIPTION_LENGTH],
             'responded_at' => ['present', Rule::requiredIf($status?->isAnswered() === true), Rule::prohibitedIf($status === TransactionStatus::Invited || $isPublication)],
+            // R8 and R22: the work starts after the signature, which comes after the answer and before the closing
+            'signed_at' => [
+                'present',
+                Rule::requiredIf($status === TransactionStatus::Completed),
+                Rule::prohibitedIf($status?->isBeforeAgreement() === true || ($payload['responded_at'] ?? null) === null),
+                'nullable',
+                'after_or_equal:responded_at',
+                Rule::when(($payload['closed_at'] ?? null) !== null, ['before_or_equal:closed_at']),
+            ],
             'closed_at' => ['present', Rule::requiredIf($status?->isFinal() === true), Rule::prohibitedIf($status !== null && !$status->isFinal())],
             'currency' => ['sometimes', Rule::in(['EUR'])],
             'activities' => ['required', 'array', 'list', 'max:'.self::MAX_ACTIVITIES],
@@ -122,6 +134,7 @@ final class TransactionData extends Data
             'sent_at' => $this->sent_at->format(Contract::DATE_FORMAT),
             'expires_at' => $this->expires_at?->format(Contract::DATE_FORMAT),
             'responded_at' => $this->responded_at?->format(Contract::DATE_FORMAT),
+            'signed_at' => $this->signed_at?->format(Contract::DATE_FORMAT),
             'closed_at' => $this->closed_at?->format(Contract::DATE_FORMAT),
             'currency' => $this->currency,
             'revision' => $revision,

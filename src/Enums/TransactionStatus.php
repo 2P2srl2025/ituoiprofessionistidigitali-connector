@@ -42,7 +42,7 @@ enum TransactionStatus: string
     }
 
     /**
-     * The statuses before any activity is entrusted: every activity is still open (rule R14).
+     * The statuses before any activity is entrusted: every activity is still open and nothing is signed (rules R8 and R14).
      */
     public function isBeforeAgreement(): bool
     {

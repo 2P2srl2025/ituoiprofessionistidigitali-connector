@@ -6,6 +6,7 @@ namespace ITuoiProfessionistiDigitali\Connector\Data;
 
 use BackedEnum;
 use Carbon\CarbonImmutable;
+use Closure;
 use Illuminate\Validation\Rule;
 use ITuoiProfessionistiDigitali\Connector\Contract;
 use ITuoiProfessionistiDigitali\Connector\Enums\CounterpartyType;
@@ -18,7 +19,7 @@ use Spatie\LaravelData\Support\Validation\ValidationContext;
 use Spatie\LaravelData\Transformers\DateTimeInterfaceTransformer;
 
 /**
- * An activity of a transaction, with its own price and progress (rules R5, R6, R14 and R15).
+ * An activity of a transaction, with its own price and progress (rules R5, R6, R14, R15 and R22).
  */
 final class TransactionActivityData extends Data
 {
@@ -44,9 +45,18 @@ final class TransactionActivityData extends Data
         $transaction = is_array($context->fullPayload) ? $context->fullPayload : [];
         $counterparty = is_array($transaction['counterparty'] ?? null) ? $transaction['counterparty'] : [];
         $isPerson = self::value($counterparty['type'] ?? null) === CounterpartyType::Person->value;
+        $isSigned = ($transaction['signed_at'] ?? null) !== null;
 
         return [
             'reference' => ['required', 'string', 'max:191'],
+            // Nobody works before the signature (rule R22)
+            'status' => [
+                'required',
+                Rule::enum(TransactionActivityStatus::class),
+                Rule::when($status === TransactionActivityStatus::Completed && !$isSigned, [static function (string $attribute, mixed $value, Closure $fail): void {
+                    $fail("Un'attività si conclude solo dopo la firma dell'incarico.");
+                }]),
+            ],
             'estimated_minutes' => ['required', 'integer', 'min:0'],
             // Only when an activity of a person ends: the hours of a firm stay with the firm (rule R5)
             'minutes_worked' => [
@@ -54,8 +64,14 @@ final class TransactionActivityData extends Data
                 Rule::requiredIf($isPerson && $status === TransactionActivityStatus::Completed),
                 Rule::prohibitedIf(!$isPerson || $status === TransactionActivityStatus::Open),
                 'nullable', 'integer', 'min:0',
+                Rule::when(!$isSigned, ['max:0']),
             ],
-            'closed_at' => ['present', Rule::requiredIf($status?->isClosed() === true), Rule::prohibitedIf($status === TransactionActivityStatus::Open)],
+            'closed_at' => [
+                'present',
+                Rule::requiredIf($status?->isClosed() === true),
+                Rule::prohibitedIf($status === TransactionActivityStatus::Open),
+                Rule::when($status === TransactionActivityStatus::Completed && $isSigned, ['after_or_equal:signed_at']),
+            ],
         ];
     }
 
