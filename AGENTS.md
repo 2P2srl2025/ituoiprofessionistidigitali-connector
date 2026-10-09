@@ -21,6 +21,7 @@ Regole per chi scrive codice che usa `ituoiprofessionistidigitali/connector` in 
 - `listed: false` tiene l'aderente fuori dalla ricerca, ma non dagli scambi.
 - Partita IVA e codice fiscale vanno in maiuscolo, senza spazi: il pacchetto e il portale verificano anche il carattere di controllo.
 - Ogni aderente ha `email`, obbligatoria: è l'email coworking della struttura, l'indirizzo per le notifiche della sua area (M14). È unica fra gli aderenti di tutto il portale (M15): una già usata da un aderente di un altro sistema è un 422 su `members.N.email`, da risolvere con lo studio, non da ritentare. Le email non distinguono maiuscole e minuscole (T6): `MemberData` le porta in minuscolo, come il portale le salva e le restituisce, quindi `Segreteria@x` e `segreteria@x` sono la stessa email anche per M15. Per confrontarle nel sistema, usa il minuscolo. Sul portale è anche l'email con cui lo studio entra nella sua area. Nelle chiamate del pacchetto, invece, per riconoscere un aderente usa `external_ref` o il suo `id`, mai l'email. Gli aderenti degli altri sistemi non la mostrano mai.
+- I rifiuti dell'email in `syncMembers()` hanno un'eccezione propria: non leggere le chiavi di `errors` a mano. `ConcurrentMemberSyncException` è una richiesta contemporanea con la stessa email. `MemberEmailsRejectedException` porta in `->messages` i messaggi del portale per `external_ref`: si risolve con lo studio, non si ritenta.
 
 ## Accesso all'area dello studio
 
@@ -94,7 +95,7 @@ arch('assignments reach the register of the platform')
 
 ## Errori
 
-- `422`: il contratto è violato. Non ritentare: leggi `->errors`, le cui chiavi sono i campi in notazione puntata.
+- `422`: il contratto è violato. Non ritentare: leggi `->errors`, le cui chiavi sono i campi in notazione puntata. L'unica eccezione è `ConcurrentMemberSyncException` di `syncMembers()`, che si ritenta con lo stesso elenco.
 - `401`: il client rinnova il token da solo. Non mettere in cache il token a mano.
 - `403`: leggi `->reason` (`pending`, `suspended`, `revoked`). È una questione di collegamento, da sistemare con l'operatore del portale, non nel codice.
 - `5xx` ed errori di rete: il client riprova da solo qualche volta; dopo, la stessa busta si può rimandare.

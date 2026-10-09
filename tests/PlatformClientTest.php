@@ -214,7 +214,7 @@ it('T6: sends the email of a member in lower case in the request body', function
     Http::assertSent(fn (Request $request): bool => $request->method() === 'PUT' && $request->data() === ['members' => [member()]]);
 });
 
-it('M6: does not publish more than a thousand members', function (): void {
+it('M6: does not publish more than a thousand members, with a local refusal that is not a retry', function (): void {
     Http::fake();
     $member = MemberData::from(member());
 
@@ -223,9 +223,9 @@ it('M6: does not publish more than a thousand members', function (): void {
         Platform::syncMembers(array_fill(0, Contract::MAX_MEMBERS + 1, $member));
         $this->fail('The list should be too long.');
     }
-    catch (PlatformRequestException $exception)
+    catch (ValidationException $exception)
     {
-        expect($exception->errors)->toHaveKey('members');
+        expect($exception->errors())->toHaveKey('members');
         Http::assertNothingSent();
     }
 });

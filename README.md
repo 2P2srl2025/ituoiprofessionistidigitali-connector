@@ -79,6 +79,31 @@ L'elenco è **completo**: gli aderenti che mancano diventano inattivi.
 
 `email` è obbligatoria: è l'email coworking della struttura, l'indirizzo per le notifiche della sua area sul portale (M14). È unica fra gli aderenti di tutto il portale, di qualunque sistema (M15): una duplicata è un 422 su `members.N.email`. Il pacchetto controlla solo che due aderenti della stessa richiesta non abbiano la stessa email, perché non conosce quelli degli altri sistemi. Le email non distinguono maiuscole e minuscole (T6): `MemberData` porta l'email in minuscolo, come il portale la salva e la restituisce, e due email della stessa richiesta che differiscono solo per le maiuscole sono la stessa. Sul portale è anche l'email con cui lo studio entra nella sua area; nelle chiamate del pacchetto, invece, un aderente si riconosce da `external_ref` o dal suo `id`, mai dall'email. La risposta di `syncMembers()` la riporta per ogni aderente. `searchMembers()` invece non la mostra mai, come il codice fiscale (M11).
 
+I rifiuti di `syncMembers()` per l'email hanno un'eccezione propria (M15):
+
+```php
+use ITuoiProfessionistiDigitali\Connector\Exceptions\ConcurrentMemberSyncException;
+use ITuoiProfessionistiDigitali\Connector\Exceptions\MemberEmailsRejectedException;
+
+try
+{
+    $members = Platform::syncMembers($all);
+}
+catch (ConcurrentMemberSyncException)
+{
+    // 422 su `members`: un'altra richiesta ha usato la stessa email nello stesso momento.
+    // Il portale non ha applicato nulla (M6): rimanda lo stesso elenco.
+}
+catch (MemberEmailsRejectedException $exception)
+{
+    // 422 solo su `members.N.email`: per external_ref, i messaggi del portale.
+    // Non si ritenta: l'email va risolta con lo studio.
+    $exception->messages; // ['struttura-1' => ['…'], …]
+}
+```
+
+Un 422 con altri errori, anche insieme alle email, resta una `PlatformRequestException`; nelle due eccezioni quella del portale è in `getPrevious()`.
+
 ```php
 $page = Platform::searchMembers(typology: 'commercialisti', search: 'bianchi');
 
@@ -271,7 +296,7 @@ resolve(ProfessionalOutbox::class)->declare($collaboratore->codice_fiscale, new 
 
 ## Errori
 
-Ogni rifiuto del portale è una `PlatformRequestException`, con `->status`, `->errors` (chiavi puntate come `payload.challenge`), `->reason` per i 403 (`SystemStatus`) e `->existingEvent` per i 409. Lo è anche quando il pacchetto rifiuta prima di mandare per lo schema del payload o per un limite, come le 500 transazioni. Un DTO che viola il contratto è invece una `ValidationException` di Laravel, con le stesse chiavi puntate in `->errors()`, prima di qualunque richiesta, come due email uguali nella stessa `syncMembers()`. Due 404 hanno un'eccezione propria: `ProfessionalNotAssignedException` per l'anagrafica e `MemberNotAccessibleException` per il link d'accesso. Senza credenziali il client lancia `PlatformNotConfiguredException`.
+Ogni rifiuto del portale è una `PlatformRequestException`, con `->status`, `->errors` (chiavi puntate come `payload.challenge`), `->reason` per i 403 (`SystemStatus`) e `->existingEvent` per i 409. Lo è anche quando il pacchetto rifiuta prima di mandare per lo schema del payload o per un limite, come le 500 transazioni. Un DTO che viola il contratto è invece una `ValidationException` di Laravel, con le stesse chiavi puntate in `->errors()`, prima di qualunque richiesta, come due email uguali nella stessa `syncMembers()`. Hanno un'eccezione propria due 404, `ProfessionalNotAssignedException` per l'anagrafica e `MemberNotAccessibleException` per il link d'accesso, e due 422 di `syncMembers()`, `ConcurrentMemberSyncException` e `MemberEmailsRejectedException`. Il limite dei 1000 aderenti è invece una `ValidationException` su `members`, che non si confonde con la corsa. Senza credenziali il client lancia `PlatformNotConfiguredException`.
 
 ## Sistemi non Laravel
 

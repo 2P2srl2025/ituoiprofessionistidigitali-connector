@@ -12,6 +12,7 @@ use Illuminate\Http\Client\Factory as Http;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
+use Illuminate\Validation\ValidationException;
 use ITuoiProfessionistiDigitali\Connector\Data\AcceptedEventData;
 use ITuoiProfessionistiDigitali\Connector\Data\AccessLinkData;
 use ITuoiProfessionistiDigitali\Connector\Data\EnvelopeData;
@@ -29,7 +30,10 @@ use ITuoiProfessionistiDigitali\Connector\Data\TransactionPage;
 use ITuoiProfessionistiDigitali\Connector\Data\TypologyData;
 use ITuoiProfessionistiDigitali\Connector\Enums\Audience;
 use ITuoiProfessionistiDigitali\Connector\Enums\SystemStatus;
+use ITuoiProfessionistiDigitali\Connector\Exceptions\ConcurrentMemberSyncException;
+use ITuoiProfessionistiDigitali\Connector\Exceptions\MemberEmailsRejectedException;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\MemberNotAccessibleException;
+use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformException;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformNotConfiguredException;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\PlatformRequestException;
 use ITuoiProfessionistiDigitali\Connector\Exceptions\ProfessionalNotAssignedException;
@@ -103,31 +107,36 @@ final readonly class PlatformClient
      *
      * @param  list<MemberData>  $members
      * @return list<RegisteredMemberData>
+     *
+     * @throws ValidationException
+     * @throws ConcurrentMemberSyncException
+     * @throws MemberEmailsRejectedException
      */
     public function syncMembers(array $members): array
     {
-        if (count($members) > Contract::MAX_MEMBERS)
-        {
-            throw new PlatformRequestException(
-                message: 'Troppi aderenti in una sola richiesta.',
-                status: 422,
-                errors: ['members' => ['Al massimo '.Contract::MAX_MEMBERS.' aderenti.']],
-            );
-        }
-
         $payload = array_map(static fn (MemberData $member): array => $member->toArray(), $members);
+
+        validator(
+            ['members' => $payload],
+            ['members' => ['max:'.Contract::MAX_MEMBERS], 'members.*.email' => ['distinct:ignore_case']],
+            ['members.max' => 'Al massimo :max aderenti in una sola richiesta.'],
+        )->validate();
 
         foreach ($payload as $member)
         {
             MemberData::validate($member);
         }
 
-        validator(['members' => $payload], ['members.*.email' => ['distinct:ignore_case']])->validate();
+        try
+        {
+            $response = $this->request('PUT', 'members', ['members' => $payload]);
+        }
+        catch (PlatformRequestException $exception)
+        {
+            throw $this->memberRefusal($exception, $members);
+        }
 
-        return array_map(
-            RegisteredMemberData::from(...),
-            $this->list($this->request('PUT', 'members', ['members' => $payload])),
-        );
+        return array_map(RegisteredMemberData::from(...), $this->list($response));
     }
 
     /**
@@ -287,6 +296,41 @@ final readonly class PlatformClient
             transactions: array_map(RecordedTransactionData::from(...), $this->list($response)),
             nextCursor: is_string($nextCursor) ? $nextCursor : null,
         );
+    }
+
+    /**
+     * The 422 of PUT /members as its own exception: on the whole list, another request at the same moment; on the
+     * emails only, the emails taken, by external_ref (rule M15). Any other refusal stays as it is.
+     *
+     * @param  list<MemberData>  $members
+     */
+    private function memberRefusal(PlatformRequestException $exception, array $members): PlatformException
+    {
+        if (!$exception->isContractViolation())
+        {
+            return $exception;
+        }
+
+        if (array_keys($exception->errors) === ['members'])
+        {
+            return new ConcurrentMemberSyncException($exception);
+        }
+
+        $messages = [];
+
+        foreach ($exception->errors as $key => $errors)
+        {
+            $member = preg_match('/^members\.(\d+)\.email$/', $key, $matches) === 1 ? $members[(int) $matches[1]] ?? null : null;
+
+            if ($member === null)
+            {
+                return $exception;
+            }
+
+            $messages[$member->external_ref] = $errors;
+        }
+
+        return $messages === [] ? $exception : new MemberEmailsRejectedException($messages, $exception);
     }
 
     /**
