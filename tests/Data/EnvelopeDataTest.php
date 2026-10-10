@@ -91,6 +91,7 @@ it('L6: recognises an event of the platform, without sender, only of a type the 
 })->with([
     'verification' => [['sender' => null, 'recipient' => null, 'typology' => null], true],
     'selection' => [['type' => Contract::COUNTERPARTY_SELECTED, 'sender' => null, 'correlation_id' => recordedTransaction()['id'], 'payload' => counterpartySelected()], true],
+    'withdrawal' => [['type' => Contract::TRANSACTION_WITHDRAWN, 'sender' => null, 'correlation_id' => recordedTransaction()['id'], 'payload' => transactionWithdrawn()], true],
     'pong without sender' => [['type' => Contract::PONG, 'sender' => null], false],
     'ping from a member' => [[], false],
     'selection with a sender' => [['type' => Contract::COUNTERPARTY_SELECTED], false],

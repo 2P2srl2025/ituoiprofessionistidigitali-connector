@@ -62,6 +62,23 @@ it('C4 and L6: fixes a valid JSON Schema 2020-12 for every event of the platform
     'application withdrawn' => [Contract::APPLICATION_WITHDRAWN, applicationEvent(['status' => 'withdrawn', 'closed_at' => '2026-10-11T08:00:00Z'])],
     'counterparty selected' => [Contract::COUNTERPARTY_SELECTED, counterpartySelected()],
     'counterparty selected, with a new field of the transaction' => [Contract::COUNTERPARTY_SELECTED, counterpartySelected(['settlements' => []])],
+    'transaction withdrawn' => [Contract::TRANSACTION_WITHDRAWN, transactionWithdrawn()],
+    'transaction withdrawn, open to members, with a new field of the transaction' => [Contract::TRANSACTION_WITHDRAWN, transactionWithdrawn(['audience' => 'member', 'settlements' => []])],
+]);
+
+it('L9: takes in transaction.withdrawn only a published transaction withdrawn by the platform, and why', function (array $payload): void {
+    expect(matchesSchema(Contract::TRANSACTION_WITHDRAWN, $payload))->toBeFalse();
+})->with([
+    'with a counterparty' => [transactionWithdrawn(['counterparty' => recordedTransaction()['counterparty']])],
+    'not withdrawn' => [transactionWithdrawn(['status' => 'published', 'closed_at' => null])],
+    'without closing' => [transactionWithdrawn(['closed_at' => null])],
+    'without expiry' => [transactionWithdrawn(['expires_at' => null])],
+    'answered' => [transactionWithdrawn(['responded_at' => '2026-10-12T09:00:00Z'])],
+    'at the first revision' => [transactionWithdrawn(['revision' => 1])],
+    'with a closed activity' => [transactionWithdrawn(['activities' => [[...recordedTransaction()['activities'][0], 'status' => 'revoked', 'closed_at' => '2026-11-30T23:00:00Z']]])],
+    'without reason' => [['transaction' => withdrawnTransaction()]],
+    'with an unknown reason' => [[...transactionWithdrawn(), 'reason' => 'operator']],
+    'one more field' => [[...transactionWithdrawn(), 'notes' => 'Testo libero']],
 ]);
 
 it('L7: keeps the tax code, the email, the VAT number and the mobile out of an application, and nothing else in the events', function (string $type, array $payload): void {

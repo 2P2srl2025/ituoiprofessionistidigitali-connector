@@ -213,6 +213,39 @@ function counterpartySelected(array $transaction = []): array
 }
 
 /**
+ * A published transaction the platform withdrew by itself after its expiry (rule L9): withdrawn at revision 2,
+ * open to anyone, without counterparty, with its activities still open.
+ *
+ * @return array<string, mixed>
+ */
+function withdrawnTransaction(array $overrides = []): array
+{
+    return recordedTransaction([
+        'origin' => 'platform',
+        'audience' => 'any',
+        'counterparty' => null,
+        'status' => 'withdrawn',
+        'expires_at' => '2026-10-31T22:59:59Z',
+        'closed_at' => '2026-11-30T23:00:00Z',
+        'revision' => 2,
+        ...$overrides,
+    ]);
+}
+
+/**
+ * The payload of transaction.withdrawn v1.
+ *
+ * @return array<string, mixed>
+ */
+function transactionWithdrawn(array $transaction = []): array
+{
+    return [
+        'transaction' => withdrawnTransaction($transaction),
+        'reason' => 'expired',
+    ];
+}
+
+/**
  * A proposal prepared as a draft with one activity, then sent: the outbox has its revision 1.
  */
 function sentAssignment(): ITuoiProfessionistiDigitali\Connector\Tests\Fixtures\Assignment

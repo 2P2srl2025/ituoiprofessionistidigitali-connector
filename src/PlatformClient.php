@@ -349,7 +349,7 @@ final readonly class PlatformClient
         }
 
         $transaction = RecordedTransactionData::from($this->data($response));
-        $this->outbox->selected($transaction);
+        $this->outbox->changedByPlatform($transaction);
 
         return $transaction;
     }

@@ -2,8 +2,10 @@
 
 declare(strict_types=1);
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -11,6 +13,7 @@ use ITuoiProfessionistiDigitali\Connector\Concerns\RecordsAffectedOnPlatform;
 use ITuoiProfessionistiDigitali\Connector\Concerns\RecordsOnPlatform;
 use ITuoiProfessionistiDigitali\Connector\Data\ProfessionalRecordData;
 use ITuoiProfessionistiDigitali\Connector\Data\RecordedTransactionData;
+use ITuoiProfessionistiDigitali\Connector\Data\TransactionActivityData;
 use ITuoiProfessionistiDigitali\Connector\Data\TransactionData;
 use ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus;
 use ITuoiProfessionistiDigitali\Connector\Facades\Platform;
@@ -145,25 +148,57 @@ it('R10 and R18: keeps the history registered in batch as confirmed, so the outb
     Queue::assertNotPushed(SendPlatformTransaction::class);
 });
 
-it('L4: takes the selection of the platform over a version waiting at the same revision, never over a newer one', function (): void {
+it('L4 and L9: takes the change of the platform over a version waiting or refused at the same revision, never over a newer one', function (callable $transaction): void {
     $outbox = resolve(TransactionOutbox::class);
     PlatformTransactionOutbox::query()->create(['reference' => 'waiting', 'revision' => 2, 'sent_revision' => 1, 'payload' => [], 'status' => OutboxStatus::Pending, 'last_error' => 'Timeout.']);
+    PlatformTransactionOutbox::query()->create(['reference' => 'refused', 'revision' => 2, 'sent_revision' => 1, 'payload' => [], 'status' => OutboxStatus::Failed, 'last_error' => 'HTTP 409']);
     PlatformTransactionOutbox::query()->create(['reference' => 'ahead', 'revision' => 3, 'sent_revision' => 3, 'payload' => [], 'status' => OutboxStatus::Sent]);
 
-    foreach (['waiting', 'ahead', 'unknown'] as $reference)
+    foreach (['waiting', 'refused', 'ahead', 'unknown'] as $reference)
     {
-        $outbox->selected(RecordedTransactionData::from(selectedTransaction(['reference' => $reference])));
+        $outbox->changedByPlatform(RecordedTransactionData::from($transaction(['reference' => $reference])));
     }
 
     $rows = PlatformTransactionOutbox::query()->get()->keyBy('reference');
 
-    expect($rows->keys()->sort()->values()->all())->toBe(['ahead', 'waiting'])
-        ->and($rows['waiting'])
+    expect($rows->keys()->sort()->values()->all())->toBe(['ahead', 'refused', 'waiting'])
+        ->and($rows->only(['waiting', 'refused']))->each(fn ($row) => $row
         ->revision->toBe(2)
         ->sent_revision->toBe(2)
         ->status->toBe(OutboxStatus::Sent)
         ->last_error->toBeNull()
-        ->payload->toBe($outbox->payloadOf(RecordedTransactionData::from(selectedTransaction())->toTransaction()))
+        ->payload->toBe($outbox->payloadOf(RecordedTransactionData::from($transaction())->toTransaction())))
         ->and($rows['ahead'])->revision->toBe(3)->payload->toBe([]);
     Queue::assertNotPushed(SendPlatformTransaction::class);
+})->with([
+    'selection' => ['selectedTransaction'],
+    'withdrawal' => ['withdrawnTransaction'],
+]);
+
+/**
+ * The names of the date properties of a DTO, as they are the keys of its body.
+ *
+ * @return list<string>
+ */
+function dateProperties(string $class): array
+{
+    return array_values(array_map(
+        static fn (ReflectionProperty $property): string => $property->getName(),
+        array_filter(new ReflectionClass($class)->getProperties(), static fn (ReflectionProperty $property): bool => str_contains((string) $property->getType(), CarbonImmutable::class)),
+    ));
+}
+
+it('T2: keeps every date in UTC, so the same instant in another time zone is the same version', function (): void {
+    $outbox = resolve(TransactionOutbox::class);
+    $local = '2026-10-20T09:00:00+02:00';
+    $payload = $outbox->payloadOf(TransactionData::from(transaction([
+        ...array_fill_keys(dateProperties(TransactionData::class), $local),
+        'activities' => [activity(array_fill_keys(dateProperties(TransactionActivityData::class), $local))],
+    ])));
+
+    expect(dateProperties(TransactionData::class))->toContain('sent_at', 'closed_at')
+        ->and(dateProperties(TransactionActivityData::class))->toBe(['closed_at'])
+        ->and(Arr::only($payload, dateProperties(TransactionData::class)))->each->toBe('2026-10-20T07:00:00+00:00')
+        ->and(Arr::only($payload['activities'][0], dateProperties(TransactionActivityData::class)))->each->toBe('2026-10-20T07:00:00+00:00')
+        ->and($outbox->payloadOf(RecordedTransactionData::from(recordedTransaction())->toTransaction()))->toBe($outbox->payloadOf(TransactionData::from(transaction())));
 });

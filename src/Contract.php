@@ -54,11 +54,13 @@ final class Contract
 
     public const string COUNTERPARTY_SELECTED = 'transaction.counterparty_selected';
 
+    public const string TRANSACTION_WITHDRAWN = 'transaction.withdrawn';
+
     /**
      * The event types only the platform sends, with no sender (rule L6). A webhook takes an envelope without sender
      * only of these types, or the verification ping.
      */
-    public const array PLATFORM_EVENTS = [self::APPLICATION_RECEIVED, self::APPLICATION_WITHDRAWN, self::COUNTERPARTY_SELECTED];
+    public const array PLATFORM_EVENTS = [self::APPLICATION_RECEIVED, self::APPLICATION_WITHDRAWN, self::COUNTERPARTY_SELECTED, self::TRANSACTION_WITHDRAWN];
 
     public const int MAX_MEMBERS = 1000;
 

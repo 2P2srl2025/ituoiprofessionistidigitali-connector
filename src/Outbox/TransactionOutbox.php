@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use ITuoiProfessionistiDigitali\Connector\ConnectorConfig;
 use ITuoiProfessionistiDigitali\Connector\Contracts\RecordsPlatformTransaction;
 use ITuoiProfessionistiDigitali\Connector\Data\RecordedTransactionData;
+use ITuoiProfessionistiDigitali\Connector\Data\TransactionActivityData;
 use ITuoiProfessionistiDigitali\Connector\Data\TransactionData;
 use ITuoiProfessionistiDigitali\Connector\Enums\OutboxStatus;
 use ITuoiProfessionistiDigitali\Connector\Jobs\SendPlatformTransaction;
@@ -80,13 +81,13 @@ final readonly class TransactionOutbox
     }
 
     /**
-     * The transaction the platform accepted with the selection of its counterparty, at the revision registered plus
-     * one (rule L4): kept as confirmed, unless the outbox already has a newer revision, so the next change of the
-     * model goes out with a higher one. It replaces a version still waiting at the same revision or lower, a
-     * withdrawal for instance, which the platform would refuse after the selection. A reference the outbox never had
-     * stays out of it.
+     * A transaction the platform changed by itself, at the revision registered plus one: accepted with the selection
+     * of its counterparty (rule L4) or withdrawn after its expiry (rule L9). It is kept as confirmed, unless the outbox
+     * already has a newer revision, so the next change of the model goes out with a higher one. It replaces a version
+     * still waiting or refused at the same revision or lower, a withdrawal of the system for instance, which the
+     * platform refuses after its own change. A reference the outbox never had stays out of it.
      */
-    public function selected(RecordedTransactionData $transaction): void
+    public function changedByPlatform(RecordedTransactionData $transaction): void
     {
         $row = PlatformTransactionOutbox::query()->where('reference', $transaction->reference)->first();
 
@@ -107,13 +108,15 @@ final readonly class TransactionOutbox
     }
 
     /**
-     * The transaction as the outbox keeps it: the body of PUT without the revision, in the form its JSON column reads back.
+     * The transaction as the outbox keeps it: the body of PUT without the revision, with the dates in UTC as the
+     * platform answers (rule T2), in the form its JSON column reads back. The same instant written in another time
+     * zone is the same version.
      *
      * @return array<string, mixed>
      */
     public function payloadOf(TransactionData $transaction): array
     {
-        $payload = $transaction->toWire(revision: 0);
+        $payload = $this->inUtc($transaction)->toWire(revision: 0);
         unset($payload['revision']);
 
         /** @var array<string, mixed> */
@@ -128,6 +131,27 @@ final readonly class TransactionOutbox
         $row = PlatformTransactionOutbox::query()->where('reference', $reference)->first();
 
         return $row instanceof PlatformTransactionOutbox && $row->sent_revision === $row->revision;
+    }
+
+    /**
+     * A copy of the transaction with its dates, and those of its activities, in UTC.
+     */
+    private function inUtc(TransactionData $transaction): TransactionData
+    {
+        $utc = clone $transaction;
+        $utc->sent_at = $transaction->sent_at->utc();
+        $utc->expires_at = $transaction->expires_at?->utc();
+        $utc->responded_at = $transaction->responded_at?->utc();
+        $utc->signed_at = $transaction->signed_at?->utc();
+        $utc->closed_at = $transaction->closed_at?->utc();
+        $utc->activities = array_map(static function (TransactionActivityData $activity): TransactionActivityData {
+            $copy = clone $activity;
+            $copy->closed_at = $activity->closed_at?->utc();
+
+            return $copy;
+        }, $transaction->activities);
+
+        return $utc;
     }
 
     /**

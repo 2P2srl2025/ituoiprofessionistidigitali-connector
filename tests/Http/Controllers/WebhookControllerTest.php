@@ -63,6 +63,7 @@ it('W1: answers 400 to a body that is not an envelope', function (string $body):
     'event of a member without sender' => [json_encode(envelope(['type' => Contract::PONG, 'sender' => null]))],
     'unknown type without sender' => [json_encode(envelope(['type' => 'transaction.unknown', 'sender' => null]))],
     'selection with a broken payload' => [json_encode(envelope(['type' => Contract::COUNTERPARTY_SELECTED, 'sender' => null, 'payload' => ['transaction' => []]]))],
+    'withdrawal with a broken payload' => [json_encode(envelope(['type' => Contract::TRANSACTION_WITHDRAWN, 'sender' => null, 'payload' => ['transaction' => withdrawnTransaction(), 'reason' => 'operator']]))],
 ]);
 
 it('L6: hands the events of the platform, without sender, to the application', function (string $type, array $payload): void {
@@ -74,9 +75,10 @@ it('L6: hands the events of the platform, without sender, to the application', f
     'application received' => [Contract::APPLICATION_RECEIVED, applicationEvent()],
     'application withdrawn' => [Contract::APPLICATION_WITHDRAWN, applicationEvent(['status' => 'withdrawn', 'closed_at' => '2026-10-11T08:00:00Z'])],
     'counterparty selected' => [Contract::COUNTERPARTY_SELECTED, counterpartySelected()],
+    'transaction withdrawn' => [Contract::TRANSACTION_WITHDRAWN, transactionWithdrawn()],
 ]);
 
-it('L4: keeps the selection in the outbox before the listeners of the application run', function (): void {
+it('L4 and L9: keeps the selection or the withdrawal of the platform in the outbox before the listeners of the application run', function (string $type, callable $payload, string $status): void {
     // The real dispatcher: the outbox follows the events of the models, and the listener must run
     $events = Event::getFacadeRoot()->dispatcher;
     Event::swap($events);
@@ -88,9 +90,12 @@ it('L4: keeps the selection in the outbox before the listeners of the applicatio
         $seen = PlatformTransactionOutbox::query()->sole()->only(['revision', 'sent_revision']);
     });
 
-    deliver($this, json_encode(envelope(['type' => Contract::COUNTERPARTY_SELECTED, 'sender' => null, 'payload' => counterpartySelected(['reference' => $assignment->uuid])])))
+    deliver($this, json_encode(envelope(['type' => $type, 'sender' => null, 'payload' => $payload(['reference' => $assignment->uuid])])))
         ->assertNoContent();
 
     expect($seen)->toBe(['revision' => 2, 'sent_revision' => 2])
-        ->and(PlatformTransactionOutbox::query()->sole()->payload['status'])->toBe('accepted');
-});
+        ->and(PlatformTransactionOutbox::query()->sole()->payload['status'])->toBe($status);
+})->with([
+    'selection' => [Contract::COUNTERPARTY_SELECTED, 'counterpartySelected', 'accepted'],
+    'withdrawal' => [Contract::TRANSACTION_WITHDRAWN, 'transactionWithdrawn', 'withdrawn'],
+]);

@@ -58,6 +58,8 @@ Regole per chi scrive codice che usa `ituoiprofessionistidigitali/connector` in 
 - Dopo la scelta il modello dell'invio passa ad `accepted` con la controparte **identica** a `$scelta->transaction->counterparty`, il `responded_at` della scelta e `signed_at` a `null` fino alla firma. `audience` ed `expires_at` restano quelli della pubblicazione. Il cellulare non va nella controparte.
 - L'outbox si allinea da sola alla revisione del portale, dalla risposta della scelta e dall'evento, prima dei listener: non toccare la revisione a mano e non chiamare `Platform::recordTransaction()`.
 - Un incarico `published` il sistema lo porta solo a `withdrawn`: ad `accepted` lo porta il portale con la scelta (R8).
+- Un incarico `published` rimasto senza scelta lo ritira anche il portale, alcuni giorni dopo `expires_at` (L9): non contare su un numero fisso di giorni, lo configura l'operatore del portale. Arriva `transaction.withdrawn` (`TransactionWithdrawnData`, `reason` `WithdrawalReason::Expired`), solo per il ritiro del portale. Il listener è in coda e idempotente sull'`event_id` e sulla `reference`: se l'invio è ancora pubblicato lo ritira come un ritiro a mano, con il `closed_at` dell'evento, altrimenti non fa nulla. Non rispondere con un `PUT`: l'outbox si allinea da sola alla revisione del portale, prima dei listener, come per la scelta.
+- Una riga dell'outbox `failed` per un 409 su un ritiro del sistema, mentre il portale aveva già ritirato, è l'unico `failed` che non è un errore nel codice: la sistema l'evento `transaction.withdrawn`.
 
 ## Collegamento
 

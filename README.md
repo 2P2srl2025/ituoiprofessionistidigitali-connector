@@ -262,7 +262,7 @@ final class ExternalAssignmentActivity extends Model implements AffectsPlatformT
 ```
 
 - Un trait usato senza la sua interfaccia lancia una `LogicException`.
-- Ogni salvataggio scrive la versione attuale in una outbox (`php artisan migrate` crea la tabella `platform_transaction_outbox`), nella stessa transazione del database, con una revisione nuova solo se qualcosa è cambiato. Una bozza, con il riferimento a `null`, non ci arriva. L'outbox tiene solo l'ultima versione: se l'invio di `invited` non è riuscito e intanto l'incarico è stato accettato, al portale arriva come prima registrazione la versione `accepted`, ed è accettata.
+- Ogni salvataggio scrive la versione attuale in una outbox (`php artisan migrate` crea la tabella `platform_transaction_outbox`), nella stessa transazione del database, con una revisione nuova solo se qualcosa è cambiato. Le date si confrontano in UTC, come le restituisce il portale: lo stesso istante scritto in un altro fuso non è un cambio. Una bozza, con il riferimento a `null`, non ci arriva. L'outbox tiene solo l'ultima versione: se l'invio di `invited` non è riuscito e intanto l'incarico è stato accettato, al portale arriva come prima registrazione la versione `accepted`, ed è accettata.
 - Un job in coda la manda con `PUT /transactions/{reference}`. Riprova sugli errori di rete e su un sistema non ancora attivo; si ferma, segnando l'errore, su una violazione del contratto o un conflitto. Vale anche quando la violazione la trova il pacchetto prima della richiesta, per esempio su una versione salvata prima che cambiasse una regola: la riga finisce `failed` e `platform:send-outbox` non la riprende.
 - `$model->isRecordedOnPlatform()` dice se il portale ha confermato la versione attuale. La registrazione segue il lavoro, non lo blocca.
 - Ogni cinque minuti il comando schedulato `platform:send-outbox` rimanda le versioni rimaste indietro, per esempio mentre il sistema era in attesa di verifica.
@@ -272,13 +272,14 @@ final class ExternalAssignmentActivity extends Model implements AffectsPlatformT
 
 ## Candidature e scelta della controparte
 
-Un incarico pubblicato trova la sua controparte sul portale. I professionisti registrati si candidano accettandone le condizioni, e il committente sceglie: la scelta porta l'incarico da `published` ad `accepted` (regole L2–L8). Il sistema del committente riceve tre eventi del portale:
+Un incarico pubblicato trova la sua controparte sul portale. I professionisti registrati si candidano accettandone le condizioni, e il committente sceglie: la scelta porta l'incarico da `published` ad `accepted` (regole L2–L8). Il sistema del committente riceve quattro eventi del portale:
 
 | Tipo | Payload | Quando |
 | --- | --- | --- |
 | `transaction.application_received` | `ApplicationReceivedData` | Una candidatura nuova, `pending` |
 | `transaction.application_withdrawn` | `ApplicationWithdrawnData` | Una candidatura ritirata, con `closed_at` |
 | `transaction.counterparty_selected` | `CounterpartySelectedData` | La scelta, fatta dal sistema con l'API o dallo studio dalla sua area |
+| `transaction.withdrawn` | `TransactionWithdrawnData` | Il ritiro automatico di un incarico rimasto senza scelta dopo la scadenza (L9) |
 
 ```php
 use ITuoiProfessionistiDigitali\Connector\Contract;
@@ -299,6 +300,27 @@ if ($envelope->type === Contract::COUNTERPARTY_SELECTED)
 - `transaction.counterparty_selected` arriva **sempre**, anche quando la scelta l'ha fatta il sistema: è la strada unica per creare quello che serve, come l'anagrafica della persona scelta. Il listener è idempotente sull'`event_id` e sulla `reference`.
 - Con la scelta il portale registra la transazione alla sua revisione più 1. Il pacchetto la scrive nella outbox come confermata, sia dalla risposta di `selectApplication()` sia dall'evento, prima dei listener. Se la outbox ha già una revisione più alta, resta com'è. Il prossimo salvataggio del modello parte quindi dalla revisione successiva, senza conflitti; una versione rimasta in attesa alla stessa revisione, come un ritiro, è sostituita dalla scelta, che il portale non disfa.
 - Da lì il modello continua come un incarico affidato: `accepted`, la controparte identica a quella ricevuta (`$scelta->transaction->counterparty`), `responded_at` della scelta, `signed_at` alla firma. `audience` ed `expires_at` restano quelli della pubblicazione (R16): un incarico pubblicato per `any` resta `any`. `RecordedTransactionData::toTransaction()` dà la transazione come il sistema la rimanda.
+
+### Ritiro automatico
+
+Un incarico ancora `published` senza una scelta lo ritira il portale, alcuni giorni dopo `expires_at`: 30, ma li configura l'operatore del portale, quindi il sistema non ci conta come su un valore fisso (regola L9). Il portale porta la transazione in `withdrawn`, con `closed_at` all'istante del ritiro e la revisione registrata più 1, chiude le candidature `pending` come `declined` e manda `transaction.withdrawn` al sistema del committente. Il ritiro fatto dal sistema con un `PUT` non genera eventi.
+
+```php
+use ITuoiProfessionistiDigitali\Connector\Contract;
+use ITuoiProfessionistiDigitali\Connector\Data\TransactionWithdrawnData;
+use ITuoiProfessionistiDigitali\Connector\Enums\WithdrawalReason;
+
+if ($envelope->type === Contract::TRANSACTION_WITHDRAWN && $envelope->isFromPlatform())
+{
+    $ritiro = TransactionWithdrawnData::from($envelope->payload);
+    $ritiro->transaction;            // RecordedTransactionData, withdrawn, con closed_at
+    $ritiro->reason;                 // WithdrawalReason::Expired
+}
+```
+
+- Come per la scelta, il pacchetto scrive la transazione ritirata nella outbox come confermata, prima dei listener, salvo una revisione più alta. Un ritiro del sistema rimasto in attesa, o rifiutato con un 409 alla stessa revisione perché il portale aveva già ritirato, è sostituito da quello del portale: la riga `failed` di questa corsa si sistema da sola con l'evento.
+- Il listener è in coda e idempotente sull'`event_id` e sulla `reference`. Se l'invio nel sistema è ancora pubblicato, lo ritira come un ritiro a mano, con il `closed_at` dell'evento, così la outbox non manda una revisione nuova. Se è già ritirato, o non c'è più, non fa nulla.
+- Ritiro e scelta non si sovrappongono: per una `reference` arriva al massimo uno dei due eventi. Una scelta dopo il ritiro risponde con `TransactionNotPublishedException`.
 
 ## Anagrafica dei professionisti
 
