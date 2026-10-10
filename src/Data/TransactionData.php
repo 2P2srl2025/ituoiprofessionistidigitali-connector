@@ -13,10 +13,14 @@ use ITuoiProfessionistiDigitali\Connector\Enums\TransactionActivityStatus;
 use ITuoiProfessionistiDigitali\Connector\Enums\TransactionStatus;
 use Spatie\LaravelData\Attributes\DataCollectionOf;
 use Spatie\LaravelData\Attributes\WithCast;
+use Spatie\LaravelData\Attributes\WithoutValidation;
 use Spatie\LaravelData\Attributes\WithTransformer;
 use Spatie\LaravelData\Casts\DateTimeInterfaceCast;
 use Spatie\LaravelData\Data;
+use Spatie\LaravelData\Resolvers\DataValidationRulesResolver;
+use Spatie\LaravelData\Support\Validation\DataRules;
 use Spatie\LaravelData\Support\Validation\ValidationContext;
+use Spatie\LaravelData\Support\Validation\ValidationPath;
 use Spatie\LaravelData\Transformers\DateTimeInterfaceTransformer;
 
 /**
@@ -48,7 +52,8 @@ final class TransactionData extends Data
         #[WithCast(DateTimeInterfaceCast::class, format: Contract::DATE_INPUT_FORMATS)]
         #[WithTransformer(DateTimeInterfaceTransformer::class, format: Contract::DATE_FORMAT)]
         public CarbonImmutable $sent_at,
-        #[DataCollectionOf(TransactionActivityData::class)]
+        // Validated by activityRules(), under the key of each activity
+        #[DataCollectionOf(TransactionActivityData::class), WithoutValidation]
         public array $activities,
         #[WithCast(DateTimeInterfaceCast::class, format: Contract::DATE_INPUT_FORMATS)]
         #[WithTransformer(DateTimeInterfaceTransformer::class, format: Contract::DATE_FORMAT)]
@@ -106,6 +111,7 @@ final class TransactionData extends Data
             'closed_at' => ['present', Rule::requiredIf($status?->isFinal() === true), Rule::prohibitedIf($status !== null && !$status->isFinal())],
             'currency' => ['sometimes', Rule::in(['EUR'])],
             'activities' => ['required', 'array', 'list', 'max:'.self::MAX_ACTIVITIES],
+            ...self::activityRules($payload),
         ];
     }
 
@@ -174,5 +180,49 @@ final class TransactionData extends Data
                 $fail("Lo stato {$status->value} non è coerente con lo stato delle attività.");
             }
         };
+    }
+
+    /**
+     * The rules of each activity under its own key (`activities.0.reference`), written once (rule R10). For a collection
+     * of DTOs with rules() Spatie writes one NestedRules on `activities.*`, and the validator of Laravel expands the
+     * whole body once per activity: the time grew with the square of the activities. Over the limit only the count
+     * answers.
+     *
+     * The rules of an activity come from DataValidationRulesResolver, an internal class of Spatie, because it also
+     * infers those of the compensation and of the description, which rules() leaves out. The loop is the one of its
+     * protected resolveStaticCollectionRules(). The equivalence test with the NestedRules, in TransactionDataTest,
+     * fails if an update of Spatie changes what it writes.
+     *
+     * @param  array<array-key, mixed>  $payload
+     * @return array<string, array<int, mixed>>
+     */
+    private static function activityRules(array $payload): array
+    {
+        $activities = $payload['activities'] ?? null;
+
+        if (!is_array($activities) || count($activities) > self::MAX_ACTIVITIES)
+        {
+            return [];
+        }
+
+        $resolver = resolve(DataValidationRulesResolver::class);
+        $rules = DataRules::create();
+
+        foreach ($activities as $index => $activity)
+        {
+            $path = ValidationPath::create("activities.{$index}");
+
+            if (!is_array($activity))
+            {
+                $rules->add($path, ['array']);
+
+                continue;
+            }
+
+            $resolver->execute(TransactionActivityData::class, $payload, $path, $rules);
+        }
+
+        /** @var array<string, array<int, mixed>> */
+        return $rules->rules;
     }
 }

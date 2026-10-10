@@ -14,6 +14,8 @@ use ITuoiProfessionistiDigitali\Connector\Data\TransactionData;
 use ITuoiProfessionistiDigitali\Connector\Enums\Audience;
 use ITuoiProfessionistiDigitali\Connector\Enums\TransactionActivityStatus;
 use ITuoiProfessionistiDigitali\Connector\Enums\TransactionStatus;
+use ITuoiProfessionistiDigitali\Connector\Tests\Fixtures\NestedActivitiesData;
+use Spatie\LaravelData\Data;
 
 /**
  * A professional as the counterparty of an assignment to a person.
@@ -53,6 +55,41 @@ function transactionIn(string $status): array
         'withdrawn' => ['audience' => 'person', 'counterparty' => null, 'title' => 'Contabilità di una srl', 'description' => 'Registrazione delle fatture.', 'expires_at' => '2026-11-06T18:00:00+01:00', 'closed_at' => '2026-10-20T09:00:00Z'],
         default => [],
     }]);
+}
+
+/**
+ * The errors of the activities of a body as a class validates it: every key under activities, with its messages,
+ * sorted by key. The nested rules of Spatie gave first the error of an activity that is not an object.
+ *
+ * @param  class-string<Data>  $class
+ * @param  array<string, mixed>  $body
+ * @return array<string, array<int, string>>
+ */
+function activityErrors(string $class, array $body): array
+{
+    try
+    {
+        $class::validate($body);
+
+        return [];
+    }
+    catch (ValidationException $exception)
+    {
+        $errors = array_filter($exception->errors(), static fn (string $key): bool => $key === 'activities' || str_starts_with($key, 'activities.'), ARRAY_FILTER_USE_KEY);
+        ksort($errors);
+
+        return $errors;
+    }
+}
+
+/**
+ * A transaction with this many activities, all valid and each with its own reference.
+ *
+ * @return array<string, mixed>
+ */
+function transactionWith(int $activities): array
+{
+    return transaction(['activities' => array_map(static fn (int $index): array => activity(['reference' => "riga-{$index}"]), range(1, $activities))]);
 }
 
 it('R3, R5 and R8: sends a valid transaction with exactly the body of the platform', function (): void {
@@ -297,6 +334,55 @@ it('refuses what the register would refuse', function (array $body, string $fiel
     'R6 empty description' => [transaction(['description' => '']), 'description'],
     'R6 description too long' => [transaction(['description' => str_repeat('a', TransactionData::MAX_DESCRIPTION_LENGTH + 1)]), 'description'],
 ]);
+
+it('R10: refuses the activities as the nested rules of Spatie did, with the same keys and messages', function (array $body, bool $refused): void {
+    $errors = activityErrors(TransactionData::class, $body);
+
+    expect($errors)->toBe(activityErrors(NestedActivitiesData::class, $body))
+        ->and($errors !== [])->toBe($refused);
+})->with([
+    'valid activities' => [transactionWith(2), false],
+    'an activity without fields' => [transaction(['activities' => [[]]]), true],
+    'an activity that is not an object' => [transaction(['activities' => ['riga-1', activity(['reference' => 'riga-2'])]]), true],
+    'a compensation of an unknown form' => [transaction(['activities' => [activity(['compensation' => ['form' => 'monthly', 'hourly_rate_cents' => 4500, 'fixed_amount_cents' => null]])]]), true],
+    'a compensation that is not an object' => [transaction(['activities' => [activity(['compensation' => 'hourly'])]]), true],
+    'R5 both amounts' => [transaction(['activities' => [activity(['compensation' => ['form' => 'hourly', 'hourly_rate_cents' => 4500, 'fixed_amount_cents' => 1]])]]), true],
+    'R6 a description outside the schema' => [transaction(['activities' => [activity(['description' => ['process' => ['name' => 'x', 'client' => 'Rossi'], 'activity' => null, 'deadline' => null]])]]), true],
+    'R6 a deadline that is not a date' => [transaction(['activities' => [activity(['description' => ['process' => null, 'activity' => null, 'deadline' => 'domani']])]]), true],
+    'an unknown status' => [transaction(['activities' => [activity(['status' => 'paused'])]]), true],
+    'R5 minutes of a firm, read from the counterparty' => [[...transactionIn('completed'), 'audience' => 'member', 'counterparty' => firm()], true],
+    'R22 completed without signature, read from the header' => [[...transactionIn('accepted'), 'activities' => [activity(['status' => 'completed', 'closed_at' => '2026-10-20T09:00:00Z', 'minutes_worked' => 90]), activity(['reference' => 'riga-2'])]], true],
+    'errors in several activities' => [transaction(['activities' => [activity(), activity(['reference' => null]), 'riga-3', activity(['reference' => 'riga-4', 'estimated_minutes' => -1, 'status' => 'paused'])]]), true],
+    'activities that are not a list' => [transaction(['activities' => ['riga-1' => activity()]]), true],
+    'without activities' => [Arr::except(transaction(), 'activities'), true],
+]);
+
+/**
+ * Not in the equivalence above: the nested rules also refused each activity, and with 501 of them they take seconds.
+ */
+it('R10: answers only the count over the limit of the activities', function (): void {
+    $errors = activityErrors(TransactionData::class, transaction(['activities' => array_fill(0, TransactionData::MAX_ACTIVITIES + 1, [])]));
+
+    expect(array_keys($errors))->toBe(['activities'])
+        ->and($errors['activities'])->toHaveCount(1);
+});
+
+it('R10: validates the activities in a time that grows with their number, not with its square', function (): void {
+    $seconds = static function (int $activities): float {
+        $wire = TransactionData::from(transactionWith($activities))->toWire(revision: 1);
+        $start = hrtime(true);
+        TransactionData::validate($wire);
+
+        return (hrtime(true) - $start) / 1e9;
+    };
+    $seconds(1);
+    $quarter = $seconds(TransactionData::MAX_ACTIVITIES / 4);
+    $full = $seconds(TransactionData::MAX_ACTIVITIES);
+
+    // Four times the activities: about 4 when linear, 9 measured with the nested rules
+    expect($full)->toBeLessThan(8.0)
+        ->and($full / $quarter)->toBeLessThan(6.5);
+});
 
 it('R8 and R14: checks an already built transaction, with enums', function (): void {
     TransactionData::validate(TransactionData::from(transactionIn('completed'))->toWire(revision: 1));
